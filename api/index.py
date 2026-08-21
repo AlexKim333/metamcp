@@ -20,7 +20,12 @@ app = FastAPI(title="KTK WMS WhatsApp Agent on Vercel")
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
 
+# 모든 경로(/, /api, /api/index, /api/index.py 등) 대응
 @app.get("/")
+@app.get("/api")
+@app.get("/api/")
+@app.get("/api/index")
+@app.get("/api/index.py")
 def root():
     return {
         "status": "ok",
@@ -29,6 +34,7 @@ def root():
     }
 
 @app.get("/health")
+@app.get("/api/health")
 def health_check():
     account_info = get_account_status()
     return {
@@ -37,6 +43,7 @@ def health_check():
     }
 
 @app.get("/webhook")
+@app.get("/api/webhook")
 def verify_webhook(
     mode: str = Query(None, alias="hub.mode"),
     token: str = Query(None, alias="hub.verify_token"),
@@ -58,6 +65,7 @@ def verify_webhook(
     raise HTTPException(status_code=400, detail="Missing parameters")
 
 @app.post("/webhook")
+@app.post("/api/webhook")
 async def receive_webhook(request: Request):
     """
     WhatsApp 실시간 메시지 수신 및 AI 자동 응답 핸들러
@@ -88,13 +96,11 @@ async def receive_webhook(request: Request):
                 print(f"📨 [발송 완료]: {res}")
             except Exception as agent_err:
                 print(f"❌ 메시지 처리 중 오류: {agent_err}")
-                # 오류 발생 시 기본 안내 메시지 발송 시도
                 send_whatsapp_message(sender_phone, f"죄송합니다, {sender_name}님. 요청을 처리하는 중 일시적인 오류가 발생했습니다.")
 
     # Meta 서버에 200 OK 응답 반환
     return Response(content="EVENT_RECEIVED", status_code=200)
 
-# 로컬 단독 실행 지원
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api.index:app", host="0.0.0.0", port=8000, reload=True)
