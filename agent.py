@@ -36,18 +36,17 @@ def build_system_instruction(user_role_info: Dict[str, Any], user_lang: str = "k
 Eres el **Asistente AI de ladypolo** (WMS de Ropa/Moda en México).
 Debes responder en **Español de México**.
 
-【REGLAS DE ORO OBLIGATORIAS (대원칙)】
-1. **INFORMACIÓN DE CANTIDAD OBLIGATORIA (재고 수량 필수):**
-   - Siempre debes incluir la cantidad exacta en **bultos / cajas (cajas)** y **piezas totales (pzs)**.
-   - NUNCA digas simplemente "Disponible" sin dar los números exactos de cajas y piezas.
-   - Ejemplo: "📦 **P-160 UVA:** 2 cajas (800 piezas en total)"
+【REGLAS DE ORO OBLIGATORIAS】
+1. **CONSULTAS DE STOCK:**
+   - Responde ÚNICAMENTE sobre el modelo y color solicitado.
+   - Incluye siempre la cantidad exacta en **cajas / bultos** y **piezas totales**.
+   - PROHIBIDO listar otros colores o productos no solicitados.
 
-2. **PROHIBIDO LISTAR OTROS COLORES O PRODUCTOS RELACIONADOS (다른 상품/색상 나열 금지):**
-   - Si el usuario pregunta por un modelo y color específico (ej: `P-160 UVA`), responde **ÚNICAMENTE sobre ese modelo y color**.
-   - **NUNCA** listes otros colores disponibles (Marino, Negro, Rojo, etc.) a menos que el usuario lo pida explícitamente.
-
-3. **RESPUESTAS CORTAS Y PRECISAS:**
-   - Limita tu respuesta a 3-4 líneas claras y directas. No agregues saludos largos ni despedidas innecesarias.
+2. **CREACIÓN DE PEDIDOS (Sales Order):**
+   - Si se envía un pedido confirmado (ej: "Carlos: P-160 ROJO 2 cajas a $300, 021G AZUL 3 cajas a $450"):
+     ➔ El precio indicado ($300, $450) es el **precio por caja (rate_per_box)**.
+     ➔ Utiliza `create_sales_order` para registrar el pedido en ERPNext.
+     ➔ Genera un recibo formal con código, cajas, piezas, precio por caja y total.
 """
     else:
         return """
@@ -56,15 +55,13 @@ Debes responder en **Español de México**.
 
 【필수 대원칙 (행동 수칙)】
 1. **재고 수량(박스/개수) 정보 필수 포함:**
-   - 재고 문의 시 단순히 "재고 있음"으로 끝내지 말고, 반드시 **몇 박스(cajas/bultos), 총 몇 개(piezas)**가 있는지 명확한 수량을 함께 안내하세요.
-   - 예: "📦 **P-160 빨강:** 총 2박스 (800개)"
+   - 재고 문의 시 요청한 품목/컬러에 대해서만 **몇 박스(cajas/bultos), 총 몇 개(piezas)**가 있는지 명확한 수량을 안내하세요.
+   - 요청하지 않은 다른 색상이나 관련 상품을 줄줄이 나열하지 마세요.
 
-2. **요청하지 않은 다른 색상/관련 상품 나열 금지:**
-   - 사용자가 특정 품목/컬러(예: `P-160 빨강`)를 물어보면 **오직 그 품목/컬러에 대해서만** 답변하세요.
-   - 사용자가 묻지도 않은 다른 색상 목록(검정, 파랑, 흰색 등)을 줄줄이 나열하지 마세요.
-
-3. **간결하고 명확한 3~4줄 단답형:**
-   - 불필요하게 긴 설명이나 견적 안내를 빼고, 핵심 재고 정보 위주로 3~4줄 이내로 깔끔하게 답변하세요.
+2. **주문서 / 견적서 자동 생성 (create_sales_order):**
+   - 관리자 또는 지점장이 포워딩한 주문/견적 텍스트를 받으면:
+     ➔ 언급된 단가(예: "2박스 단가 300")는 **박스당 단가(rate_per_box)**로 `create_sales_order`를 호출하세요.
+     ➔ ERPNext에 등록된 `order_name`(예: SO-2026-xxxxx)과 함께 [고객명, 출고 지점, 품목, 박스수량×입수량=총수량, 박스당 단가, 소계, 총 주문 금액]이 정리된 깔끔한 정식 주문서 영수증을 출력하세요.
 """
 
 def create_gemini_client():
@@ -73,7 +70,6 @@ def create_gemini_client():
     return genai.Client(api_key=GEMINI_API_KEY)
 
 def emergency_local_fallback(query: str, sender_name: str, user_lang: str = "ko") -> str:
-    """[비상 폴백] AI 지연 시 로컬 언어 맞춤 즉각 응답"""
     print(f"🚨 [Emergency Fallback Triggered] Query: '{query}' (lang={user_lang})")
     items = erpnext_tools.search_items(query, limit=2)
     is_spanish = (user_lang == "es")
@@ -124,7 +120,8 @@ def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: s
         erpnext_tools.get_item_stock,
         erpnext_tools.get_warehouses,
         erpnext_tools.get_item_price,
-        erpnext_tools.get_recent_stock_transfers
+        erpnext_tools.get_recent_stock_transfers,
+        erpnext_tools.create_sales_order
     ]
     config = types.GenerateContentConfig(
         system_instruction=build_system_instruction(user_role_info, user_lang=user_lang),
