@@ -17,7 +17,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# 안정성과 응답 속도(1.5초)가 최상인 모델들을 1순위로 배치
+# 안정성과 속도(1.5초)가 뛰어난 모델 순서
 MODEL_CASCADE = [
     "gemini-3.5-flash",
     "gemini-3.6-flash",
@@ -49,23 +49,41 @@ def create_gemini_client():
     return genai.Client(api_key=GEMINI_API_KEY)
 
 def emergency_local_fallback(query: str, sender_name: str) -> str:
-    """[비상 폴백] AI 전체 장애 시 로컬 검색으로 즉각 응답"""
-    print(f"🚨 [Emergency Fallback Triggered] Query: '{query}'")
+    """
+    [AI 지연/장애 시 긴급 알림 및 로컬 즉시 검색 폴백]
+    Gemini API 장애 발생 시 사용자에게 AI 지연 알림을 명확히 전달하고,
+    ERPNext 로컬 직접 검색 결과를 대신 제공합니다.
+    """
+    print(f"🚨 [AI 접속 지연/장애 감지 ➔ 긴급 알림 및 로컬 폴백 발동] Query: '{query}'")
+    
+    # 1. 로컬 품목 검색 시도
     items = erpnext_tools.search_items(query, limit=5)
     if items:
         lines = [
-            f"ℹ️ (AI 서비스 일시 지연으로 기본 검색 결과로 안내해 드립니다, {sender_name}님)\n",
-            f"🔍 **'{query}' 관련 품목 검색 결과 ({len(items)}건):**"
+            f"⚠️ **[안내] AI 서버 응답이 지연되어 기본 시스템 검색으로 즉시 안내해 드립니다.** ({sender_name}님)\n",
+            f"🔍 **'{query}' 관련 품목 실시간 재고:**"
         ]
         for it in items:
             name = it.get('name')
             stock = erpnext_tools.get_item_stock(name)
-            qty = stock.get('total_qty', 0)
+            qty = int(stock.get('total_qty', 0))
             boxes = stock.get('total_boxes', 0)
-            lines.append(f"• **[{name}]** {it.get('item_name', '')} ➔ 총 재고: {boxes}박스 ({qty:,.0f}개)")
+            pack = stock.get('pack_qty', 1)
+            lines.append(f"\n📦 **[{name}]**")
+            lines.append(f"• 총 재고: **{boxes}박스** ({qty:,}개) *(입수: {pack}개/box)*")
+            
+            # 창고별 세부
+            wh_list = [w for w in stock.get('warehouses', []) if w.get('actual_qty', 0) > 0]
+            for w in wh_list:
+                lines.append(f"  📍 {w.get('warehouse')}: {w.get('boxes')}박스 ({int(w.get('actual_qty')):,}개)")
         return "\n".join(lines)
 
-    return f"죄송합니다, {sender_name}님. 일치하는 품목을 찾지 못했습니다. 품목명을 확인해 주세요."
+    # 검색 결과조차 없는 경우
+    return (
+        f"⚠️ **[시스템 알림]**\n"
+        f"현재 Google AI 서비스 응답이 일시적으로 지연되고 있습니다.\n"
+        f"입력하신 **'{query}'**에 해당하는 품목 코드를 찾지 못했으니, 정확한 품목명(예: `021G`, `P-160`)을 입력해 주세요!"
+    )
 
 def run_agent(user_message: str, sender_name: str = "사용자") -> str:
     """[통합 AI 에이전트 실행 파이프라인]"""
@@ -74,7 +92,7 @@ def run_agent(user_message: str, sender_name: str = "사용자") -> str:
 
     raw_text = user_message.strip()
 
-    # 1. [Tier 0] 토큰 0개 로컬 바이패스 (0.1초 즉답)
+    # 1. [Tier 0] 0-Token 로컬 바이패스 (0.1초 즉답)
     local_reply = try_zero_token_local_bypass(raw_text, sender_name)
     if local_reply:
         print(f"⚡ [0-Token Local Bypass] '{raw_text}' -> 즉시 로컬 응답")
@@ -106,13 +124,7 @@ def run_agent(user_message: str, sender_name: str = "사용자") -> str:
                 print(f"✅ [Gemini 성공] Model: {model_name}")
                 return response.text.strip()
         except Exception as e:
-            print(f"⚠️ [Gemini 건너뜀] Model: {model_name} -> {e}")
+            print(f"⚠️ [Gemini 일시 실패] Model: {model_name} -> {e}")
 
-    # 4. [Tier 4] 비상 로컬 검색 폴백
+    # 4. [Tier 4] AI 전체 장애 시 긴급 알림 + 로컬 검색 즉시 회신
     return emergency_local_fallback(normalized_text, sender_name)
-
-if __name__ == "__main__":
-    t0 = time.time()
-    res = run_agent("P160 빨강색 재고는?", "대표님")
-    print(f"⏱️ 소요시간: {time.time() - t0:.2f}초")
-    print(res)
