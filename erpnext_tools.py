@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re
 import requests
 from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
@@ -22,65 +23,93 @@ def _get_headers() -> Dict[str, str]:
         "Accept": "application/json"
     }
 
+def _generate_search_variations(query: str) -> List[str]:
+    """
+    품목 검색어 유연화 (P160 -> ['P160', 'P-160', '160', 'PL160', 'L-PL160'])
+    하이픈 누락이나 서브코드 불일치를 완벽히 방어
+    """
+    clean = query.strip()
+    if not clean:
+        return []
+    
+    variations = [clean]
+    
+    # 1. 영문+숫자 결합형 (P160 -> P-160)
+    m = re.match(r'^([A-Za-z]+)(\d+.*)$', clean)
+    if m:
+        hyphenated = f"{m.group(1)}-{m.group(2)}"
+        if hyphenated not in variations:
+            variations.append(hyphenated)
+            
+    # 2. 하이픈 제거형 (P-160 -> P160)
+    dehyphenated = clean.replace("-", "").replace(" ", "")
+    if dehyphenated not in variations:
+        variations.append(dehyphenated)
+        
+    # 3. 숫자 부분만 추출 (P160 -> 160)
+    digits = re.findall(r'\d+', clean)
+    if digits:
+        for d in digits:
+            if len(d) >= 3 and d not in variations:
+                variations.append(d)
+                
+    return variations
+
 def search_items(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     """
-    ERPNext에서 품목(Item)을 품목코드(name) 또는 품명(item_name)으로 검색합니다.
-    :param query: 검색할 품목코드 또는 품명 (예: '021G', 'P-D60')
-    :param limit: 최대 검색 결과 수
+    ERPNext에서 품목(Item)을 검색합니다. (P160, P-160 등 하이픈 누락 자동 보정)
+    :param query: 검색할 품목코드 또는 품명 (예: 'P160', '021G', 'P-D60')
     """
     clean_q = query.strip()
     if not clean_q:
         return []
 
-    # 1. name 또는 item_name에 포함된 품목 검색 (or 필터 or 각각 검색 후 병합)
     url = f"{ERPNEXT_URL}/api/resource/Item"
     headers = _get_headers()
-    
     fields = json.dumps(["name", "item_name", "item_group", "stock_uom", "custom_pack_qty", "disabled"])
     
-    # or_filters를 활용하거나 like 필터로 검색
-    params = {
-        "fields": fields,
-        "filters": json.dumps([["disabled", "=", 0]]),
-        "or_filters": json.dumps([
-            ["name", "like", f"%{clean_q}%"],
-            ["item_name", "like", f"%{clean_q}%"]
-        ]),
-        "limit_page_length": limit,
-        "order_by": "modified desc"
-    }
+    search_terms = _generate_search_variations(clean_q)
+    
+    seen_names = set()
+    results = []
 
-    try:
-        res = requests.get(url, headers=headers, params=params, timeout=10)
-        if res.status_code == 200:
-            items = res.json().get("data", [])
-            return items
-        else:
-            # or_filters 미지원 시 단일 filter fallback
-            fallback_params = {
-                "fields": fields,
-                "filters": json.dumps([
-                    ["disabled", "=", 0],
-                    ["name", "like", f"%{clean_q}%"]
-                ]),
-                "limit_page_length": limit
-            }
-            res2 = requests.get(url, headers=headers, params=fallback_params, timeout=10)
-            return res2.json().get("data", []) if res2.status_code == 200 else []
-    except Exception as e:
-        print(f"❌ 품목 검색 오류 ({query}): {e}")
-        return []
+    for term in search_terms:
+        params = {
+            "fields": fields,
+            "filters": json.dumps([["disabled", "=", 0]]),
+            "or_filters": json.dumps([
+                ["name", "like", f"%{term}%"],
+                ["item_name", "like", f"%{term}%"]
+            ]),
+            "limit_page_length": limit,
+            "order_by": "modified desc"
+        }
+
+        try:
+            res = requests.get(url, headers=headers, params=params, timeout=10)
+            if res.status_code == 200:
+                items = res.json().get("data", [])
+                for item in items:
+                    iname = item.get("name")
+                    if iname not in seen_names:
+                        seen_names.add(iname)
+                        results.append(item)
+                # 이미 충분한 결과를 얻었으면 추가 변형 검색 중단
+                if len(results) >= 5:
+                    break
+        except Exception as e:
+            print(f"❌ 품목 검색 오류 ({term}): {e}")
+
+    return results[:limit]
 
 def get_item_stock(item_code: str, warehouse: Optional[str] = None) -> Dict[str, Any]:
     """
     특정 품목(item_code)의 실시간 지점별 재고(Bin) 수량을 조회합니다.
-    :param item_code: 품목 코드 (예: '021G-AZUL-400')
-    :param warehouse: 특정 창고명 (선택사항, 생략 시 모든 창고 조회)
     """
     clean_code = item_code.strip()
     headers = _get_headers()
 
-    # 1. Item 마스터 정보 가져오기 (포장단위 pack_qty 확인용)
+    # 1. Item 마스터 정보 조회
     item_info = {}
     try:
         item_res = requests.get(f"{ERPNEXT_URL}/api/resource/Item/{requests.utils.quote(clean_code)}", headers=headers, timeout=10)
@@ -112,7 +141,6 @@ def get_item_stock(item_code: str, warehouse: Optional[str] = None) -> Dict[str,
             
             for b in bins:
                 qty = float(b.get("actual_qty", 0))
-                # 0개인 곳도 포함하거나 0 이상인 곳만 정리
                 boxes = int(qty // pack_qty) if pack_qty > 0 else int(qty)
                 eaches = int(qty % pack_qty) if pack_qty > 0 else 0
                 
@@ -162,7 +190,7 @@ def get_warehouses() -> List[Dict[str, Any]]:
         return []
 
 def get_item_price(item_code: str) -> Dict[str, Any]:
-    """특정 품목의 판매 단가(Standard Selling 및 도매 등급가)를 조회합니다."""
+    """특정 품목의 판매 단가를 조회합니다."""
     clean_code = item_code.strip()
     headers = _get_headers()
     params = {
