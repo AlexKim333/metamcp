@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 
 # 프로젝트 루트 디렉토리를 Python Path에 추가
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,27 +21,26 @@ app = FastAPI(title="KTK WMS WhatsApp Agent on Vercel")
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
 
+# 중복 응답 방지를 위한 Message ID 캐시 (최근 1000건)
+PROCESSED_MESSAGE_IDS = set()
+MAX_CACHE_SIZE = 1000
+
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all_handler(request: Request, full_path: str = ""):
-    """
-    Vercel Serverless의 모든 라우팅 경로를 완벽하게 수용하는 만능 핸들러
-    """
+    global PROCESSED_MESSAGE_IDS
     method = request.method
     query_params = request.query_params
 
-    # 1. Meta Webhook Verification (GET 요청 시 hub.mode, hub.verify_token 처리)
+    # 1. Meta Webhook Verification (GET 요청)
     if method == "GET":
         mode = query_params.get("hub.mode")
         token = query_params.get("hub.verify_token")
         challenge = query_params.get("hub.challenge")
 
         if mode or token:
-            print(f"🔔 [Webhook Verification Request] mode={mode}, token={token}, challenge={challenge}")
             if mode == "subscribe" and token == VERIFY_TOKEN:
-                print("✅ [Webhook Verification 성공] challenge 반환!")
                 return PlainTextResponse(content=str(challenge), status_code=200)
             else:
-                print("❌ [Webhook Verification 실패] Token 불일치")
                 raise HTTPException(status_code=403, detail="Verification token mismatch")
 
         # 일반 GET 요청 시 헬스체크 반환
@@ -49,7 +49,6 @@ async def catch_all_handler(request: Request, full_path: str = ""):
             "status": "healthy",
             "service": "KTK WMS WhatsApp AI Agent",
             "platform": "Vercel Serverless",
-            "requested_path": f"/{full_path}",
             "whatsapp_account": account_info
         }, status_code=200)
 
@@ -61,21 +60,34 @@ async def catch_all_handler(request: Request, full_path: str = ""):
             print(f"❌ JSON 파싱 실패: {e}")
             return JSONResponse(content={"status": "invalid json"}, status_code=400)
 
-        # 메시지 파싱
+        # 메시지 정보 파싱
         msg_info = parse_incoming_message(body)
+        
         if msg_info:
-            sender_phone = msg_info["sender_phone"]
-            sender_name = msg_info["sender_name"]
-            text = msg_info["text"]
+            message_id = msg_info.get("message_id")
+            sender_phone = msg_info.get("sender_phone")
+            sender_name = msg_info.get("sender_name")
+            text = msg_info.get("text")
 
-            if text:
+            # [중복 방지 필터] 이미 처리한 메시지 ID인 경우 무시
+            if message_id:
+                if message_id in PROCESSED_MESSAGE_IDS:
+                    print(f"⏩ [중복 메시지 스킵] message_id={message_id}")
+                    return Response(content="EVENT_RECEIVED", status_code=200)
+                
+                # 캐시 관리
+                PROCESSED_MESSAGE_IDS.add(message_id)
+                if len(PROCESSED_MESSAGE_IDS) > MAX_CACHE_SIZE:
+                    PROCESSED_MESSAGE_IDS.pop()
+
+            if text and sender_phone:
                 print(f"\n📩 [WhatsApp 수신] {sender_name}({sender_phone}): '{text}'")
                 try:
                     # AI 에이전트 실행 및 회신 발송
                     ai_reply = run_agent(user_message=text, sender_name=sender_name)
                     print(f"🤖 [AI 답변]\n{ai_reply}")
                     res = send_whatsapp_message(sender_phone, ai_reply)
-                    print(f"📨 [WhatsApp 발송 결과]: {res}")
+                    print(f"📨 [WhatsApp 발송 완료]: {res}")
                 except Exception as agent_err:
                     print(f"❌ 에이전트 오류: {agent_err}")
                     send_whatsapp_message(sender_phone, f"죄송합니다, {sender_name}님. 요청을 처리하는 중 일시적인 오류가 발생했습니다.")
