@@ -20,25 +20,28 @@ app = FastAPI(title="KTK WMS WhatsApp Agent on Vercel")
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
 
-# 모든 경로(/, /api, /api/index, /api/index.py 등) 대응
 @app.get("/")
 @app.get("/api")
 @app.get("/api/")
-@app.get("/api/index")
-@app.get("/api/index.py")
-def root():
-    return {
-        "status": "ok",
-        "service": "KTK WMS WhatsApp AI Agent",
-        "platform": "Vercel Serverless"
-    }
-
 @app.get("/health")
 @app.get("/api/health")
-def health_check():
+def root_or_health(
+    mode: str = Query(None, alias="hub.mode"),
+    token: str = Query(None, alias="hub.verify_token"),
+    challenge: str = Query(None, alias="hub.challenge")
+):
+    # 만약 Vercel rewrite로 인해 메타 검증 요청이 루트로 들어온 경우에도 자동 처리
+    if mode and token:
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            return PlainTextResponse(content=challenge, status_code=200)
+        else:
+            raise HTTPException(status_code=403, detail="Verification token mismatch")
+            
     account_info = get_account_status()
     return {
         "status": "healthy",
+        "service": "KTK WMS WhatsApp AI Agent",
+        "platform": "Vercel Serverless",
         "whatsapp_account": account_info
     }
 
@@ -49,14 +52,11 @@ def verify_webhook(
     token: str = Query(None, alias="hub.verify_token"),
     challenge: str = Query(None, alias="hub.challenge")
 ):
-    """
-    Meta 개발자 포털 Webhook Verification 핸들러
-    """
+    """Meta Webhook Verification Endpoint"""
     print(f"🔔 [Webhook Verification] mode={mode}, token={token}")
-    
     if mode and token:
         if mode == "subscribe" and token == VERIFY_TOKEN:
-            print("✅ Webhook Verification 성공! (Challenge 반환)")
+            print("✅ Webhook Verification 성공! Challenge 반환")
             return PlainTextResponse(content=challenge, status_code=200)
         else:
             print("❌ Webhook Verification 실패: Token 불일치")
@@ -66,10 +66,10 @@ def verify_webhook(
 
 @app.post("/webhook")
 @app.post("/api/webhook")
+@app.post("/")
+@app.post("/api")
 async def receive_webhook(request: Request):
-    """
-    WhatsApp 실시간 메시지 수신 및 AI 자동 응답 핸들러
-    """
+    """WhatsApp 실시간 메시지 수신 및 AI 응답 처리"""
     try:
         body = await request.json()
     except Exception as e:
@@ -87,7 +87,7 @@ async def receive_webhook(request: Request):
         if text:
             print(f"\n📩 [WhatsApp 수신] {sender_name}({sender_phone}): '{text}'")
             try:
-                # 2. AI 에이전트 실행 및 답변 생성
+                # 2. AI 에이전트 실행
                 ai_reply = run_agent(user_message=text, sender_name=sender_name)
                 print(f"🤖 [AI 답변]\n{ai_reply}")
                 
@@ -98,7 +98,7 @@ async def receive_webhook(request: Request):
                 print(f"❌ 메시지 처리 중 오류: {agent_err}")
                 send_whatsapp_message(sender_phone, f"죄송합니다, {sender_name}님. 요청을 처리하는 중 일시적인 오류가 발생했습니다.")
 
-    # Meta 서버에 200 OK 응답 반환
+    # Meta 서버에는 항상 200 OK 응답 반환
     return Response(content="EVENT_RECEIVED", status_code=200)
 
 if __name__ == "__main__":
