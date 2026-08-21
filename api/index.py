@@ -21,7 +21,11 @@ from whatsapp_client import (
     get_account_status
 )
 from agent import run_agent
-from text_preprocessor import try_zero_token_local_bypass, handle_quick_button_click
+from text_preprocessor import (
+    try_zero_token_local_bypass,
+    handle_quick_button_click,
+    detect_and_update_user_lang
+)
 
 app = FastAPI(title="ladypolo WhatsApp Agent on Vercel")
 
@@ -78,15 +82,19 @@ async def catch_all_handler(request: Request, full_path: str = ""):
             sender_phone = msg_info.get("sender_phone")
             sender_name = msg_info.get("sender_name")
             button_id = msg_info.get("button_id")
-            text = msg_info.get("text")
+            text = msg_info.get("text", "")
 
             if sender_phone:
+                # [언어 세션 감지 및 지속] 사용자의 언어(한국어 vs 스페인어) 확정
+                user_lang = detect_and_update_user_lang(sender_phone, text)
+                print(f"\n🌐 [세션 언어] {sender_name}({sender_phone}) ➔ {user_lang.upper()}")
+
                 # ---------------------------------------------------------
                 # Case A: 사용자가 WhatsApp 인터랙티브 버튼을 탭한 경우 (0-Token)
                 # ---------------------------------------------------------
                 if button_id:
-                    print(f"\n🔘 [버튼 클릭 감지] {sender_name}({sender_phone}): button_id='{button_id}'")
-                    reply_text = handle_quick_button_click(button_id, sender_name)
+                    print(f"🔘 [버튼 클릭 감지] button_id='{button_id}' | lang={user_lang}")
+                    reply_text = handle_quick_button_click(button_id, sender_name, user_lang=user_lang)
                     res = send_whatsapp_message(sender_phone, reply_text)
                     print(f"📨 [버튼 응답 발송]: {res}")
                     return Response(content="EVENT_RECEIVED", status_code=200)
@@ -95,16 +103,15 @@ async def catch_all_handler(request: Request, full_path: str = ""):
                 # Case B: 일반 텍스트 입력
                 # ---------------------------------------------------------
                 if text:
-                    print(f"\n📩 [WhatsApp 수신] {sender_name}({sender_phone}): '{text}'")
+                    print(f"📩 [WhatsApp 수신] {sender_name}: '{text}'")
 
-                    # 1. 0-Token 로컬 바이패스 검사
-                    bypass_res = try_zero_token_local_bypass(text, sender_name)
+                    # 1. 0-Token 로컬 바이패스 검사 (언어 세션 반영)
+                    bypass_res = try_zero_token_local_bypass(text, sender_name, user_lang=user_lang)
                     
                     if bypass_res:
                         if bypass_res.get("type") == "buttons":
-                            # 3대 퀵 버튼 발송
                             p = bypass_res["payload"]
-                            print(f"🔘 [3대 퀵 버튼 발송] to={sender_phone}")
+                            print(f"🔘 [3대 퀵 버튼 발송] lang={user_lang}")
                             res = send_interactive_buttons(
                                 recipient_phone=sender_phone,
                                 body_text=p["body_text"],
@@ -114,21 +121,30 @@ async def catch_all_handler(request: Request, full_path: str = ""):
                             print(f"📨 [버튼 발송 결과]: {res}")
                             return Response(content="EVENT_RECEIVED", status_code=200)
                         elif bypass_res.get("type") == "text":
-                            # 로컬 텍스트 즉답 발송
-                            print(f"⚡ [0-Token 로컬 즉답] to={sender_phone}")
+                            print(f"⚡ [0-Token 로컬 즉답] lang={user_lang}")
                             res = send_whatsapp_message(sender_phone, bypass_res["content"])
                             print(f"📨 [로컬 발송 결과]: {res}")
                             return Response(content="EVENT_RECEIVED", status_code=200)
 
-                    # 2. 복합 자연어 질문 -> Gemini 에이전트 실행 (역할 기반)
+                    # 2. 복합 자연어 질문 -> Gemini 에이전트 실행 (언어 세션 강제)
                     try:
-                        ai_reply = run_agent(user_message=text, sender_name=sender_name, sender_phone=sender_phone)
+                        ai_reply = run_agent(
+                            user_message=text,
+                            sender_name=sender_name,
+                            sender_phone=sender_phone,
+                            user_lang=user_lang
+                        )
                         print(f"🤖 [AI 답변]\n{ai_reply}")
                         res = send_whatsapp_message(sender_phone, ai_reply)
                         print(f"📨 [WhatsApp 발송 완료]: {res}")
                     except Exception as agent_err:
                         print(f"❌ 에이전트 오류: {agent_err}")
-                        send_whatsapp_message(sender_phone, f"죄송합니다, {sender_name}님. 요청을 처리하는 중 일시적인 오류가 발생했습니다.")
+                        err_msg = (
+                            f"Disculpa, {sender_name}. Ocurrió un error temporal al procesar tu solicitud."
+                            if user_lang == "es" else
+                            f"죄송합니다, {sender_name}님. 요청을 처리하는 중 일시적인 오류가 발생했습니다."
+                        )
+                        send_whatsapp_message(sender_phone, err_msg)
 
         return Response(content="EVENT_RECEIVED", status_code=200)
 
