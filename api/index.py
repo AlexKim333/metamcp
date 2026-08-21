@@ -33,66 +33,70 @@ app = FastAPI(title="ladypolo WhatsApp Agent & Admin Portal on Vercel")
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
 MAX_MESSAGE_AGE_SECONDS = 120
 
-# ---------------------------------------------------------------------------
-# API 라우트
-# ---------------------------------------------------------------------------
-
-@app.post("/api/login")
-async def admin_login(request: Request):
-    data = await request.json()
-    pwd = data.get("password")
-    settings = get_settings()
-    if pwd == settings.get("admin_password"):
-        return JSONResponse({"success": True, "token": "authenticated"})
-    return JSONResponse({"success": False, "error": "Invalid password"}, status_code=401)
-
-@app.get("/api/settings")
-async def fetch_settings():
-    return JSONResponse(get_settings())
-
-@app.post("/api/settings")
-async def update_settings(request: Request):
-    new_data = await request.json()
-    ok = save_settings(new_data)
-    return JSONResponse({"success": ok, "settings": get_settings()})
-
-@app.post("/api/test-agent")
-async def test_agent_sandbox(request: Request):
-    data = await request.json()
-    msg = data.get("message", "").strip()
-    if not msg:
-        return JSONResponse({"reply": "메시지를 입력해 주세요."})
-    
-    lang = "es" if any(s in msg.lower() for s in ['hola', 'stock', 'cuanto', 'precio', 'uva']) else "ko"
-    reply = run_agent(user_message=msg, sender_name="Admin", sender_phone="5215563482005", user_lang=lang)
-    return JSONResponse({"reply": reply})
-
-# ---------------------------------------------------------------------------
-# CATCH-ALL 라우트: 브라우저 접속은 HTML 대시보드 / Meta Webhook은 웹훅 처리
-# ---------------------------------------------------------------------------
-
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
-async def handle_everything(request: Request, full_path: str = ""):
+async def handle_all_requests(request: Request, full_path: str = ""):
     method = request.method
     query_params = request.query_params
+    path = full_path.strip("/").lower()
 
-    # [GET 요청]
+    # =========================================================================
+    # 1. API 엔드포인트 처리 (POST /api/login, GET/POST /api/settings, /api/test-agent)
+    # =========================================================================
+    if path == "api/login" and method == "POST":
+        try:
+            data = await request.json()
+            pwd = data.get("password")
+            settings = get_settings()
+            if pwd == settings.get("admin_password"):
+                return JSONResponse({"success": True, "token": "authenticated"})
+            return JSONResponse({"success": False, "error": "Invalid password"}, status_code=401)
+        except Exception as e:
+            return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+    if path == "api/settings":
+        if method == "GET":
+            return JSONResponse(get_settings())
+        elif method == "POST":
+            try:
+                new_data = await request.json()
+                ok = save_settings(new_data)
+                return JSONResponse({"success": ok, "settings": get_settings()})
+            except Exception as e:
+                return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+
+    if path == "api/test-agent" and method == "POST":
+        try:
+            data = await request.json()
+            msg = data.get("message", "").strip()
+            if not msg:
+                return JSONResponse({"reply": "메시지를 입력해 주세요."})
+            
+            lang = "es" if any(s in msg.lower() for s in ['hola', 'stock', 'cuanto', 'precio', 'uva']) else "ko"
+            reply = run_agent(user_message=msg, sender_name="Admin", sender_phone="5215563482005", user_lang=lang)
+            return JSONResponse({"reply": reply})
+        except Exception as e:
+            return JSONResponse({"reply": f"오류 발생: {e}"})
+
+    # =========================================================================
+    # 2. GET 요청 (Meta Webhook Verification 또는 관리자 대시보드 HTML)
+    # =========================================================================
     if method == "GET":
         mode = query_params.get("hub.mode")
         token = query_params.get("hub.verify_token")
         challenge = query_params.get("hub.challenge")
 
-        # 1. Meta Webhook 등록 검증 (hub.mode = subscribe)
         if mode == "subscribe":
             if token == VERIFY_TOKEN:
                 return PlainTextResponse(content=str(challenge), status_code=200)
             else:
                 raise HTTPException(status_code=403, detail="Verification token mismatch")
 
-        # 2. 그 외 모든 브라우저 GET 요청은 관리자 대시보드 HTML 반환!
+        # 브라우저 접속은 대시보드 HTML 서빙
         return HTMLResponse(content=get_dashboard_html(), status_code=200)
 
-    # [POST 요청: Meta WhatsApp 메시지 수신]
+    # =========================================================================
+    # 3. POST 요청: Meta WhatsApp Cloud API 실시간 웹훅 수신
+    # =========================================================================
     elif method == "POST":
         try:
             body = await request.json()
@@ -105,10 +109,8 @@ async def handle_everything(request: Request, full_path: str = ""):
             msg_timestamp = msg_info.get("timestamp", 0)
             now = int(time.time())
             
-            # 과거 재전송 메시지 스킵
             if msg_timestamp > 0 and (now - msg_timestamp > MAX_MESSAGE_AGE_SECONDS):
-                age = now - msg_timestamp
-                print(f"⏳ [오래된 재전송 메시지 스킵] 경과 시간: {age}초 | text='{msg_info.get('text')}'")
+                print(f"⏳ [오래된 재전송 메시지 스킵] 경과 시간: {now - msg_timestamp}초 | text='{msg_info.get('text')}'")
                 return Response(content="EVENT_RECEIVED", status_code=200)
 
             sender_phone = msg_info.get("sender_phone")
@@ -120,14 +122,12 @@ async def handle_everything(request: Request, full_path: str = ""):
                 user_lang = detect_and_update_user_lang(sender_phone, text)
                 print(f"\n🌐 [세션 언어] {sender_name}({sender_phone}) ➔ {user_lang.upper()}")
 
-                # Case A: 버튼 클릭
                 if button_id:
                     print(f"🔘 [버튼 클릭] button_id='{button_id}'")
                     reply_text = handle_quick_button_click(button_id, sender_name, user_lang=user_lang)
                     send_whatsapp_message(sender_phone, reply_text)
                     return Response(content="EVENT_RECEIVED", status_code=200)
 
-                # Case B: 일반 텍스트 입력
                 if text:
                     print(f"📩 [수신] {sender_name}: '{text}'")
                     bypass_res = try_zero_token_local_bypass(text, sender_name, user_lang=user_lang)
@@ -146,7 +146,6 @@ async def handle_everything(request: Request, full_path: str = ""):
                             send_whatsapp_message(sender_phone, bypass_res["content"])
                             return Response(content="EVENT_RECEIVED", status_code=200)
 
-                    # Gemini 에이전트 실행
                     try:
                         ai_reply = run_agent(
                             user_message=text,
