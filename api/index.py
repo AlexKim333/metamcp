@@ -40,8 +40,8 @@ MAX_MESSAGE_AGE_SECONDS = 120
 
 @app.get("/")
 @app.get("/admin")
+@app.get("/dashboard")
 async def serve_admin_dashboard():
-    """관리자 대시보드 웹 UI 제공"""
     return HTMLResponse(content=get_dashboard_html(), status_code=200)
 
 @app.post("/api/login")
@@ -65,56 +65,56 @@ async def update_settings(request: Request):
 
 @app.post("/api/test-agent")
 async def test_agent_sandbox(request: Request):
-    """대시보드 실시간 AI 테스트 샌드박스"""
     data = await request.json()
     msg = data.get("message", "").strip()
     if not msg:
         return JSONResponse({"reply": "메시지를 입력해 주세요."})
     
-    # 샌드박스 테스트는 기본 한국어/스페인어 감지하여 실행
     lang = "es" if any(s in msg.lower() for s in ['hola', 'stock', 'cuanto', 'precio', 'uva']) else "ko"
     reply = run_agent(user_message=msg, sender_name="Admin", sender_phone="5215563482005", user_lang=lang)
     return JSONResponse({"reply": reply})
 
 # ---------------------------------------------------------------------------
-# 2. META WHATSAPP WEBHOOK ROUTE
+# 2. META WHATSAPP WEBHOOK & CATCH-ALL ROUTE
 # ---------------------------------------------------------------------------
 
-@app.api_route("/webhook", methods=["GET", "POST"])
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all_handler(request: Request, full_path: str = ""):
     method = request.method
     query_params = request.query_params
+    req_path = request.url.path
 
-    # 1. Meta Webhook Verification (GET)
+    # [GET 요청]
     if method == "GET":
         mode = query_params.get("hub.mode")
         token = query_params.get("hub.verify_token")
         challenge = query_params.get("hub.challenge")
 
+        # A. Meta Webhook Verification
         if mode or token:
             if mode == "subscribe" and token == VERIFY_TOKEN:
                 return PlainTextResponse(content=str(challenge), status_code=200)
             else:
                 raise HTTPException(status_code=403, detail="Verification token mismatch")
 
-        # 루트나 일반 GET 요청 시 대시보드 리다이렉트/서빙
-        if not full_path or full_path in ["admin", "dashboard"]:
-            return HTMLResponse(content=get_dashboard_html(), status_code=200)
+        # B. 명시적 /webhook 헬스체크 요청인 경우에만 JSON 반환
+        if "webhook" in req_path and not ("hub.mode" in query_params):
+            account_info = get_account_status()
+            return JSONResponse(content={
+                "status": "healthy",
+                "service": "ladypolo WhatsApp AI Agent",
+                "platform": "Vercel Serverless",
+                "whatsapp_account": account_info
+            }, status_code=200)
 
-        account_info = get_account_status()
-        return JSONResponse(content={
-            "status": "healthy",
-            "service": "ladypolo WhatsApp AI Agent",
-            "platform": "Vercel Serverless",
-            "whatsapp_account": account_info
-        }, status_code=200)
+        # C. 브라우저로 접속한 모든 일반 GET 요청은 관리자 대시보드 HTML 서빙!
+        return HTMLResponse(content=get_dashboard_html(), status_code=200)
 
-    # 2. WhatsApp 실시간 메시지 수신 (POST)
+    # [POST 요청 - WhatsApp 메시지 수신]
     elif method == "POST":
         try:
             body = await request.json()
-        except Exception as e:
+        except Exception:
             return JSONResponse(content={"status": "invalid json"}, status_code=400)
 
         msg_info = parse_incoming_message(body)
@@ -123,7 +123,7 @@ async def catch_all_handler(request: Request, full_path: str = ""):
             msg_timestamp = msg_info.get("timestamp", 0)
             now = int(time.time())
             
-            # 과거 재전송 유령 메시지 스킵
+            # 과거 재전송 메시지 스킵
             if msg_timestamp > 0 and (now - msg_timestamp > MAX_MESSAGE_AGE_SECONDS):
                 age = now - msg_timestamp
                 print(f"⏳ [오래된 재전송 메시지 스킵] 경과 시간: {age}초 | text='{msg_info.get('text')}'")
