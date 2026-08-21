@@ -29,51 +29,42 @@ MODEL_CASCADE = [
 ]
 
 def build_system_instruction(user_role_info: Dict[str, Any], user_lang: str = "ko") -> str:
-    role = user_role_info.get("role", ROLE_CUSTOMER)
     is_spanish = (user_lang == "es")
 
-    lang_instruction = (
-        "【중요: 언어 강제 규칙】\n"
-        "이 사용자는 [스페인어(Español)] 사용자입니다. 어떤 경우에도 한국어를 섞지 말고, 100% 자연스러운 멕시코 비즈니스 스페인어(Español de México)로만 답변하세요!"
-        if is_spanish else
-        "【중요: 언어 강제 규칙】\n"
-        "이 사용자는 [한국어] 사용자입니다. 친절하고 정확한 한국어로 답변하세요."
-    )
-
     if is_spanish:
-        role_guideline = (
-            "El usuario es [Administrador/Dueño]. Proporciona detalles completos de existencias, precios y traspasos de todos los almacenes."
-            if role == ROLE_OWNER else
-            "El usuario es [Empleado de Sucursal]. Proporciona existencias disponibles en bodega principal (ALARCON) y sucursales."
-            if role == ROLE_STAFF else
-            "El usuario es [Cliente General]. NO reveles nombres de almacenes internos ni inventario exacto. Solo indica si hay disponibilidad (Disponible/Agotado) y opciones de color/precio."
-        )
+        return """
+Eres el **Asistente AI de ladypolo** (WMS de Ropa/Moda en México).
+Debes responder en **Español de México**.
+
+【REGLAS DE ORO OBLIGATORIAS (대원칙)】
+1. **INFORMACIÓN DE CANTIDAD OBLIGATORIA (재고 수량 필수):**
+   - Siempre debes incluir la cantidad exacta en **bultos / cajas (cajas)** y **piezas totales (pzs)**.
+   - NUNCA digas simplemente "Disponible" sin dar los números exactos de cajas y piezas.
+   - Ejemplo: "📦 **P-160 UVA:** 2 cajas (800 piezas en total)"
+
+2. **PROHIBIDO LISTAR OTROS COLORES O PRODUCTOS RELACIONADOS (다른 상품/색상 나열 금지):**
+   - Si el usuario pregunta por un modelo y color específico (ej: `P-160 UVA`), responde **ÚNICAMENTE sobre ese modelo y color**.
+   - **NUNCA** listes otros colores disponibles (Marino, Negro, Rojo, etc.) a menos que el usuario lo pida explícitamente.
+
+3. **RESPUESTAS CORTAS Y PRECISAS:**
+   - Limita tu respuesta a 3-4 líneas claras y directas. No agregues saludos largos ni despedidas innecesarias.
+"""
     else:
-        role_guideline = (
-            "현재 대화 상대는 [오너/최고관리자]입니다. 모든 지점/창고의 상세 재고, 원가 및 단가, 전표 현황 등 모든 정보를 상세하게 제공하세요."
-            if role == ROLE_OWNER else
-            "현재 대화 상대는 [직원]입니다. 본사(ALARCON) 및 지점의 실시간 가용 재고, 기본 판매 단가, 이동 전표 관련 정보를 제공하세요."
-            if role == ROLE_STAFF else
-            "현재 대화 상대는 [일반 고객]입니다. 내부 창고명이나 정확한 내부 총수량은 비공개로 유지하고, 단순히 구매 가능 여부(있음/품절)와 컬러/소비자가 위주로 안내하세요."
-        )
+        return """
+당신은 **ladypolo(멕시코 의류/패션 물류 시스템)**의 WhatsApp AI 비서입니다.
+한국어로 명확하게 답변하세요.
 
-    return f"""
-당신은 **ladypolo(멕시코 의류/패션 물류 및 재고 관리 시스템)**의 WhatsApp 전용 AI 비서입니다.
+【필수 대원칙 (행동 수칙)】
+1. **재고 수량(박스/개수) 정보 필수 포함:**
+   - 재고 문의 시 단순히 "재고 있음"으로 끝내지 말고, 반드시 **몇 박스(cajas/bultos), 총 몇 개(piezas)**가 있는지 명확한 수량을 함께 안내하세요.
+   - 예: "📦 **P-160 빨강:** 총 2박스 (800개)"
 
-{lang_instruction}
+2. **요청하지 않은 다른 색상/관련 상품 나열 금지:**
+   - 사용자가 특정 품목/컬러(예: `P-160 빨강`)를 물어보면 **오직 그 품목/컬러에 대해서만** 답변하세요.
+   - 사용자가 묻지도 않은 다른 색상 목록(검정, 파랑, 흰색 등)을 줄줄이 나열하지 마세요.
 
-[접속자 역할 및 보안 수칙]
-{role_guideline}
-
-[핵심 행동 수칙]
-1. 정체성:
-   - 당신의 이름/브랜드는 **ladypolo 비서** (스페인어: **Asistente de ladypolo**)입니다.
-2. 엄격한 업무 범위 (토큰 절약 가드레일):
-   - 당신은 **오직 ladypolo 재고, 품목, 창고, 단가, 전표 등 물류 업무만** 수행합니다.
-   - 날씨, 번역, 일반 상식, 코딩, 일상 잡담 등 물류와 무관한 질문은 단호하고 정중하게 거절하세요.
-     (스페인어: "Disculpa, solo puedo ayudarte con temas de inventario y logística de ladypolo.")
-3. 수량 표기:
-   - 총 낱개 수량과 함께 **박스(Cajas/Box)** 수량을 반드시 알기 쉽게 표기합니다.
+3. **간결하고 명확한 3~4줄 단답형:**
+   - 불필요하게 긴 설명이나 견적 안내를 빼고, 핵심 재고 정보 위주로 3~4줄 이내로 깔끔하게 답변하세요.
 """
 
 def create_gemini_client():
@@ -84,62 +75,49 @@ def create_gemini_client():
 def emergency_local_fallback(query: str, sender_name: str, user_lang: str = "ko") -> str:
     """[비상 폴백] AI 지연 시 로컬 언어 맞춤 즉각 응답"""
     print(f"🚨 [Emergency Fallback Triggered] Query: '{query}' (lang={user_lang})")
-    items = erpnext_tools.search_items(query, limit=5)
+    items = erpnext_tools.search_items(query, limit=2)
     is_spanish = (user_lang == "es")
 
     if items:
         if is_spanish:
-            lines = [
-                f"⚠️ **[Aviso] El servicio de IA está experimentando lentitud. Mostrando resultados directos:**\n",
-                f"🔍 **Resultados para '{query}':**"
-            ]
+            lines = [f"🔍 **Resultado para '{query}':**\n"]
             for it in items:
                 name = it.get('name')
                 stock = erpnext_tools.get_item_stock(name)
                 qty = int(stock.get('total_qty', 0))
                 boxes = stock.get('total_boxes', 0)
-                pack = stock.get('pack_qty', 1)
-                lines.append(f"\n📦 **[{name}]**")
-                lines.append(f"• Total: **{boxes} cajas** ({qty:,} pzs) *(Empaque: {pack} pzs/caja)*")
+                lines.append(f"📦 **[{name}]**")
+                lines.append(f"• Existencia: **{boxes} bultos/cajas** ({qty:,} pzs)")
             return "\n".join(lines)
         else:
-            lines = [
-                f"⚠️ **[안내] AI 서버 응답이 지연되어 ladypolo 기본 검색으로 안내해 드립니다.** ({sender_name}님)\n",
-                f"🔍 **'{query}' 관련 품목 실시간 재고:**"
-            ]
+            lines = [f"🔍 **'{query}' 재고 결과:**\n"]
             for it in items:
                 name = it.get('name')
                 stock = erpnext_tools.get_item_stock(name)
                 qty = int(stock.get('total_qty', 0))
                 boxes = stock.get('total_boxes', 0)
-                pack = stock.get('pack_qty', 1)
-                lines.append(f"\n📦 **[{name}]**")
-                lines.append(f"• 총 재고: **{boxes}박스** ({qty:,}개) *(입수: {pack}개/box)*")
+                lines.append(f"📦 **[{name}]**")
+                lines.append(f"• 총 재고: **{boxes}박스** ({qty:,}개)")
             return "\n".join(lines)
 
     return (
-        f"⚠️ **[Aviso]** No se encontró el producto '{query}'. Por favor verifica el código (ej: `021G`, `P-160`)."
+        f"❌ No se encontraron existencias para '{query}'."
         if is_spanish else
-        f"⚠️ **[ladypolo 알림]** '{query}'에 해당하는 품목을 찾지 못했습니다. 정확한 품목명(예: `021G`, `P-160`)을 입력해 주세요!"
+        f"❌ '{query}' 품목의 재고 정보를 찾지 못했습니다."
     )
 
 def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: str = "", user_lang: str = "ko") -> str:
-    """[역할 및 언어 세션 기반 통합 AI 에이전트 실행]"""
     if not user_message or not user_message.strip():
         return (
-            f"¡Hola, {sender_name}! Soy el **Asistente de ladypolo**. ¿En qué puedo ayudarte?"
+            f"¡Hola, {sender_name}! ¿Qué producto deseas consultar?"
             if user_lang == "es" else
-            f"안녕하세요, {sender_name}님! **ladypolo 비서**입니다. 무엇을 도와드릴까요?"
+            f"안녕하세요, {sender_name}님! 어떤 품목의 재고를 조회할까요?"
         )
 
     raw_text = user_message.strip()
     user_role_info = get_user_role(sender_phone)
-    print(f"👤 [User Session] Phone={sender_phone} | Role={user_role_info.get('role_name')} | Lang={user_lang}")
-
-    # 1. 텍스트 전처리
     normalized_text = spoken_numerals_to_digits(raw_text)
 
-    # 2. Gemini 고속 Flash 모델 Cascade
     client = create_gemini_client()
     tools = [
         erpnext_tools.search_items,
@@ -150,7 +128,7 @@ def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: s
     ]
     config = types.GenerateContentConfig(
         system_instruction=build_system_instruction(user_role_info, user_lang=user_lang),
-        temperature=0.2,
+        temperature=0.1,
         tools=tools
     )
 
@@ -165,5 +143,4 @@ def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: s
         except Exception as e:
             print(f"⚠️ [Gemini 일시 실패] Model: {model_name} -> {e}")
 
-    # 3. 비상 로컬 검색 회신
     return emergency_local_fallback(normalized_text, sender_name, user_lang=user_lang)
