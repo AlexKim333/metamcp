@@ -22,7 +22,7 @@ KO_DIGITS = {
 
 def spoken_numerals_to_digits(text: str) -> str:
     """
-    텍스트/발화 내 한글 수사를 아라비아 숫자로 변환 (예: "삼삼삼일 네그로" -> "3331 NEGRO")
+    텍스트 내 한글 수사를 아라비아 숫자로 변환 (예: "삼삼삼일 네그로" -> "3331 NEGRO")
     """
     if not text:
         return ""
@@ -39,26 +39,44 @@ def spoken_numerals_to_digits(text: str) -> str:
     
     # 색상 별칭 치환
     for alias, standard in COLOR_ALIASES.items():
-        # 단어 경계 또는 포함 매칭
         s = re.sub(rf'\b{alias}\b', standard, s, flags=re.IGNORECASE)
 
     return s
 
 def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Optional[str]:
     """
-    [Tier 0: 토큰 0개 로컬 바이패스 엔진]
-    단순 정형 패턴(도움말, 창고 목록, 인사, 단순 재고조회)을 LLM 없이 0토큰/0.01초로 즉시 응답.
-    LLM 호출이 필요하면 None을 반환하여 Gemini로 위임합니다.
+    [Tier 0: 토큰 0개 로컬 바이패스 엔진 (한국어/스페인어 완벽 분기)]
     """
     cleaned = text.strip()
     norm = spoken_numerals_to_digits(cleaned).lower()
 
-    # 1. 인사 패턴
-    if norm in ['안녕', '안녕하세요', '하이', 'hola', 'buenas', 'buenos dias', 'buenas tardes']:
+    # 1-A. 스페인어 인사
+    if norm in ['hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches', 'que tal', 'hola!']:
+        return (
+            f"👋 ¡Hola, {sender_name}! Soy el **Asistente AI de KTK WMS**.\n\n"
+            "¿En qué puedo ayudarte hoy?\n"
+            "• **Consultar existencias:** `stock de 021G`, `existencia P160`\n"
+            "• **Buscar artículos:** `buscar 025G`\n"
+            "• **Ver almacenes:** `almacenes` o `sucursales`"
+        )
+
+    # 1-B. 한국어 인사
+    if norm in ['안녕', '안녕하세요', '하이', '반가워', '안뇽']:
         return f"👋 안녕하세요, {sender_name}님! KTK WMS AI 에이전트입니다.\n\n재고 조회, 품목 검색, 창고 목록 등을 언제든 물어보세요!\n(예: '021G 재고', '창고 목록', '025G 검색')"
 
-    # 2. 도움말 / 명령어
-    if norm in ['도움말', '명령어', '사용법', 'help', 'ayuda']:
+    # 2-A. 스페인어 도움말
+    if norm in ['ayuda', 'help', 'comandos', 'instrucciones']:
+        return (
+            "📋 **Guía del Asistente KTK WMS en WhatsApp**\n\n"
+            "• **Existencias:** `021G-AZUL-400 stock`, `stock de 3331 NEGRO`\n"
+            "• **Búsqueda:** `buscar 025G`, `P-D60`\n"
+            "• **Almacenes:** `almacenes`, `ver sucursales`\n"
+            "• **Precios:** `precio de 021G`\n\n"
+            "¡Puedes escribir tus consultas de forma natural!"
+        )
+
+    # 2-B. 한국어 도움말
+    if norm in ['도움말', '명령어', '사용법']:
         return (
             "📋 **KTK WMS WhatsApp 비서 사용 안내**\n\n"
             "• **재고 조회:** `021G-AZUL-400 재고`, `3331 네그로 재고`\n"
@@ -68,52 +86,83 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
             "한국어와 스페인어 모두 편하게 자연어로 입력하시면 됩니다!"
         )
 
-    # 3. 창고 목록 단순 요청
-    if norm in ['창고 목록', '창고목록', '지점 목록', '지점목록', '창고', 'almacenes', 'sucursales', 'ver almacenes']:
+    # 3-A. 스페인어 창고 목록
+    if norm in ['almacenes', 'sucursales', 'ver almacenes', 'lista de almacenes', 'almacen']:
+        warehouses = erpnext_tools.get_warehouses()
+        if not warehouses:
+            return "No se encontraron almacenes activos."
+        lines = ["🏬 **Lista de Almacenes Activos (KTK WMS)**\n"]
+        for w in warehouses:
+            lines.append(f"• **{w.get('name')}** ({w.get('warehouse_name', '')})")
+        return "\n".join(lines)
+
+    # 3-B. 한국어 창고 목록
+    if norm in ['창고 목록', '창고목록', '지점 목록', '지점목록', '창고', '지점']:
         warehouses = erpnext_tools.get_warehouses()
         if not warehouses:
             return "현재 등록된 활성 창고 정보가 없습니다."
-        
         lines = ["🏬 **KTK WMS 활성 창고 목록**\n"]
         for w in warehouses:
             lines.append(f"• **{w.get('name')}** ({w.get('warehouse_name', '')})")
         return "\n".join(lines)
 
-    # 4. 명확한 품목 코드 재고 조회 패턴 (예: "021G-AZUL-400 재고", "P-D60 재고 얼마")
-    # 품목코드 규격: 영문/숫자-영문/숫자 형태가 명확하고 '재고' 또는 'stock' 키워드가 있을 때
-    match = re.search(r'([A-Za-z0-9]+-[A-Za-z0-9\-]+)\s*(재고|stock|cuanto hay|existencia)?', cleaned, re.IGNORECASE)
-    if match and any(k in norm for k in ['재고', 'stock', 'existencia', 'cuanto']):
+    # 4. 명확한 품목 코드 단순 재고 조회 패턴
+    match = re.search(r'([A-Za-z0-9]+-[A-Za-z0-9\-]+)', cleaned, re.IGNORECASE)
+    has_stock_keyword = any(k in norm for k in ['재고', 'stock', 'existencia', 'cuanto', 'cuánto', 'hay'])
+    
+    if match and has_stock_keyword:
         item_code = match.group(1).upper()
         stock_info = erpnext_tools.get_item_stock(item_code)
         
         if stock_info.get("success") and stock_info.get("total_qty") is not None:
+            is_spanish = any(k in norm for k in ['stock', 'existencia', 'cuanto', 'cuánto', 'hay', 'de', 'en'])
             total_qty = int(stock_info['total_qty'])
             pack = stock_info.get('pack_qty', 1)
             boxes = stock_info.get('total_boxes', 0)
             eaches = stock_info.get('total_eaches', 0)
-            
-            res_lines = [
-                f"📌 **[{item_code}] 실시간 재고 현황**",
-                f"📦 **총 재고량:** {boxes}박스 ({total_qty:,}개)" if pack > 1 else f"📦 **총 재고량:** {total_qty:,}개",
-                f"*(입수량: 1박스당 {pack}개)*\n",
-                "📍 **창고별 상세:**"
-            ]
-            
             wh_list = stock_info.get("warehouses", [])
-            if not wh_list or all(w.get('actual_qty', 0) <= 0 for w in wh_list):
-                res_lines.append("• 현재 보유 중인 재고가 없습니다. (0개)")
-            else:
-                for w in wh_list:
-                    w_qty = int(w.get('actual_qty', 0))
-                    if w_qty > 0:
-                        w_box = w.get('boxes', 0)
-                        w_each = w.get('eaches', 0)
-                        box_str = f"{w_box}박스" if w_box > 0 else ""
-                        each_str = f"{w_each}개" if w_each > 0 or not box_str else ""
-                        qty_detail = f"{box_str} {each_str}".strip()
-                        res_lines.append(f"• **{w.get('warehouse')}**: {qty_detail} (총 {w_qty:,}개)")
-            
-            return "\n".join(res_lines)
 
-    # 단순 로컬 처리 대상이 아니면 LLM(Gemini)으로 넘김
+            if is_spanish:
+                # 스페인어 응답 포맷
+                res_lines = [
+                    f"📌 **Existencias en tiempo real de [{item_code}]**",
+                    f"📦 **Total en Stock:** {boxes} cajas ({total_qty:,} pzs)" if pack > 1 else f"📦 **Total en Stock:** {total_qty:,} pzs",
+                    f"*(Empaque: {pack} pzs por caja)*\n",
+                    "📍 **Detalle por Almacén:**"
+                ]
+                if not wh_list or all(w.get('actual_qty', 0) <= 0 for w in wh_list):
+                    res_lines.append("• No hay existencias disponibles actualmente (0 pzs).")
+                else:
+                    for w in wh_list:
+                        w_qty = int(w.get('actual_qty', 0))
+                        if w_qty > 0:
+                            w_box = w.get('boxes', 0)
+                            w_each = w.get('eaches', 0)
+                            box_s = f"{w_box} cajas" if w_box > 0 else ""
+                            each_s = f"{w_each} pzs" if w_each > 0 or not box_s else ""
+                            qty_s = f"{box_s} {each_s}".strip()
+                            res_lines.append(f"• **{w.get('warehouse')}**: {qty_s} (Total: {w_qty:,} pzs)")
+                return "\n".join(res_lines)
+            else:
+                # 한국어 응답 포맷
+                res_lines = [
+                    f"📌 **[{item_code}] 실시간 재고 현황**",
+                    f"📦 **총 재고량:** {boxes}박스 ({total_qty:,}개)" if pack > 1 else f"📦 **총 재고량:** {total_qty:,}개",
+                    f"*(입수량: 1박스당 {pack}개)*\n",
+                    "📍 **창고별 상세:**"
+                ]
+                if not wh_list or all(w.get('actual_qty', 0) <= 0 for w in wh_list):
+                    res_lines.append("• 현재 보유 중인 재고가 없습니다. (0개)")
+                else:
+                    for w in wh_list:
+                        w_qty = int(w.get('actual_qty', 0))
+                        if w_qty > 0:
+                            w_box = w.get('boxes', 0)
+                            w_each = w.get('eaches', 0)
+                            box_str = f"{w_box}박스" if w_box > 0 else ""
+                            each_str = f"{w_each}개" if w_each > 0 or not box_str else ""
+                            qty_detail = f"{box_str} {each_str}".strip()
+                            res_lines.append(f"• **{w.get('warehouse')}**: {qty_detail} (총 {w_qty:,}개)")
+                return "\n".join(res_lines)
+
     return None
