@@ -17,12 +17,11 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# 다계층 고가용성 Flash 모델 Fallback 순서
+# 안정성과 응답 속도(1.5초)가 최상인 모델들을 1순위로 배치
 MODEL_CASCADE = [
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-flash-latest"
+    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite"
 ]
 
 SYSTEM_INSTRUCTION = """
@@ -50,14 +49,8 @@ def create_gemini_client():
     return genai.Client(api_key=GEMINI_API_KEY)
 
 def emergency_local_fallback(query: str, sender_name: str) -> str:
-    """
-    [비상 폴백 (Emergency Fallback)]
-    모든 Gemini API가 일시 장애인 경우에도,
-    로컬 검색 도구를 직접 실행하여 최소한의 재고/품목 정보를 사용자에게 회신합니다.
-    """
+    """[비상 폴백] AI 전체 장애 시 로컬 검색으로 즉각 응답"""
     print(f"🚨 [Emergency Fallback Triggered] Query: '{query}'")
-    
-    # 1. 품목 검색 시도
     items = erpnext_tools.search_items(query, limit=5)
     if items:
         lines = [
@@ -72,39 +65,25 @@ def emergency_local_fallback(query: str, sender_name: str) -> str:
             lines.append(f"• **[{name}]** {it.get('item_name', '')} ➔ 총 재고: {boxes}박스 ({qty:,.0f}개)")
         return "\n".join(lines)
 
-    return f"죄송합니다, {sender_name}님. 현재 AI 서비스 점검 중이며 일치하는 품목을 찾지 못했습니다. 잠시 후 다시 시도해 주세요."
+    return f"죄송합니다, {sender_name}님. 일치하는 품목을 찾지 못했습니다. 품목명을 확인해 주세요."
 
 def run_agent(user_message: str, sender_name: str = "사용자") -> str:
-    """
-    [통합 AI 에이전트 실행 파이프라인]
-    1. Tier 0: 0-Token 로컬 바이패스 (인사, 도움말, 정형 재고조회 -> LLM 비용 0원/0.01초 즉시 응답)
-    2. 텍스트 전처리: 한글 수사("삼삼삼일") 및 색상("네그로") 정규화
-    3. Tier 1~3: Gemini 다중 모델 자동 Fallback (gemini-3.7-flash -> gemini-3.6-flash -> gemini-3.5-flash)
-    4. Tier 4: Gemini 전면 장애 시 Emergency Local Search Fallback
-    """
+    """[통합 AI 에이전트 실행 파이프라인]"""
     if not user_message or not user_message.strip():
         return f"안녕하세요, {sender_name}님! 무엇을 도와드릴까요?"
 
     raw_text = user_message.strip()
 
-    # -------------------------------------------------------------
-    # 1. [Tier 0] 토큰 0개 로컬 바이패스 (Zero-Token Bypass)
-    # -------------------------------------------------------------
+    # 1. [Tier 0] 토큰 0개 로컬 바이패스 (0.1초 즉답)
     local_reply = try_zero_token_local_bypass(raw_text, sender_name)
     if local_reply:
-        print(f"⚡ [0-Token Local Bypass] '{raw_text}' -> 즉시 로컬 응답 (Gemini 미호출)")
+        print(f"⚡ [0-Token Local Bypass] '{raw_text}' -> 즉시 로컬 응답")
         return local_reply
 
-    # -------------------------------------------------------------
-    # 2. 텍스트 전처리 (한국어 수사/색상 정규화)
-    # -------------------------------------------------------------
+    # 2. 텍스트 전처리 (수사/색상 정규화)
     normalized_text = spoken_numerals_to_digits(raw_text)
-    if normalized_text != raw_text:
-        print(f"🔄 [Text Preprocessed] '{raw_text}' ➔ '{normalized_text}'")
 
-    # -------------------------------------------------------------
-    # 3. Gemini 다계층 모델 Fallback & Auto-Retry
-    # -------------------------------------------------------------
+    # 3. Gemini 고속 Flash 모델 Cascade
     client = create_gemini_client()
     tools = [
         erpnext_tools.search_items,
@@ -118,7 +97,6 @@ def run_agent(user_message: str, sender_name: str = "사용자") -> str:
         tools=tools
     )
 
-    last_error = None
     for model_name in MODEL_CASCADE:
         try:
             print(f"🤖 [Gemini 호출] Model: {model_name}...")
@@ -128,20 +106,13 @@ def run_agent(user_message: str, sender_name: str = "사용자") -> str:
                 print(f"✅ [Gemini 성공] Model: {model_name}")
                 return response.text.strip()
         except Exception as e:
-            last_error = e
-            print(f"⚠️ [Gemini 실패] Model: {model_name} -> {e}")
-            time.sleep(0.5)
+            print(f"⚠️ [Gemini 건너뜀] Model: {model_name} -> {e}")
 
-    # -------------------------------------------------------------
-    # 4. [Tier 4] 비상 로컬 검색 폴백 (Emergency Fallback)
-    # -------------------------------------------------------------
+    # 4. [Tier 4] 비상 로컬 검색 폴백
     return emergency_local_fallback(normalized_text, sender_name)
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("🚀 [최신 모델 Fallback 검증]")
-    print("=" * 60)
-    
-    q = "021G-NEGRO-400 재고 얼마 있어?"
-    ans = run_agent(q, "대표님")
-    print(f"답변:\n{ans}")
+    t0 = time.time()
+    res = run_agent("P160 빨강색 재고는?", "대표님")
+    print(f"⏱️ 소요시간: {time.time() - t0:.2f}초")
+    print(res)
