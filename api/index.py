@@ -7,7 +7,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from fastapi import FastAPI, Request, Query, HTTPException, Response
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import PlainTextResponse, JSONResponse
 from dotenv import load_dotenv
 
@@ -20,87 +20,66 @@ app = FastAPI(title="KTK WMS WhatsApp Agent on Vercel")
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
 
-@app.get("/")
-@app.get("/api")
-@app.get("/api/")
-@app.get("/health")
-@app.get("/api/health")
-def root_or_health(
-    mode: str = Query(None, alias="hub.mode"),
-    token: str = Query(None, alias="hub.verify_token"),
-    challenge: str = Query(None, alias="hub.challenge")
-):
-    # 만약 Vercel rewrite로 인해 메타 검증 요청이 루트로 들어온 경우에도 자동 처리
-    if mode and token:
-        if mode == "subscribe" and token == VERIFY_TOKEN:
-            return PlainTextResponse(content=challenge, status_code=200)
-        else:
-            raise HTTPException(status_code=403, detail="Verification token mismatch")
-            
-    account_info = get_account_status()
-    return {
-        "status": "healthy",
-        "service": "KTK WMS WhatsApp AI Agent",
-        "platform": "Vercel Serverless",
-        "whatsapp_account": account_info
-    }
+@app.api_route("/{full_path:path}", methods=["GET", "POST"])
+async def catch_all_handler(request: Request, full_path: str = ""):
+    """
+    Vercel Serverless의 모든 라우팅 경로를 완벽하게 수용하는 만능 핸들러
+    """
+    method = request.method
+    query_params = request.query_params
 
-@app.get("/webhook")
-@app.get("/api/webhook")
-def verify_webhook(
-    mode: str = Query(None, alias="hub.mode"),
-    token: str = Query(None, alias="hub.verify_token"),
-    challenge: str = Query(None, alias="hub.challenge")
-):
-    """Meta Webhook Verification Endpoint"""
-    print(f"🔔 [Webhook Verification] mode={mode}, token={token}")
-    if mode and token:
-        if mode == "subscribe" and token == VERIFY_TOKEN:
-            print("✅ Webhook Verification 성공! Challenge 반환")
-            return PlainTextResponse(content=challenge, status_code=200)
-        else:
-            print("❌ Webhook Verification 실패: Token 불일치")
-            raise HTTPException(status_code=403, detail="Verification token mismatch")
-            
-    raise HTTPException(status_code=400, detail="Missing parameters")
+    # 1. Meta Webhook Verification (GET 요청 시 hub.mode, hub.verify_token 처리)
+    if method == "GET":
+        mode = query_params.get("hub.mode")
+        token = query_params.get("hub.verify_token")
+        challenge = query_params.get("hub.challenge")
 
-@app.post("/webhook")
-@app.post("/api/webhook")
-@app.post("/")
-@app.post("/api")
-async def receive_webhook(request: Request):
-    """WhatsApp 실시간 메시지 수신 및 AI 응답 처리"""
-    try:
-        body = await request.json()
-    except Exception as e:
-        print(f"❌ JSON 파싱 실패: {e}")
-        return JSONResponse(content={"status": "invalid json"}, status_code=400)
+        if mode or token:
+            print(f"🔔 [Webhook Verification Request] mode={mode}, token={token}, challenge={challenge}")
+            if mode == "subscribe" and token == VERIFY_TOKEN:
+                print("✅ [Webhook Verification 성공] challenge 반환!")
+                return PlainTextResponse(content=str(challenge), status_code=200)
+            else:
+                print("❌ [Webhook Verification 실패] Token 불일치")
+                raise HTTPException(status_code=403, detail="Verification token mismatch")
 
-    # 1. 메시지 파싱
-    msg_info = parse_incoming_message(body)
-    
-    if msg_info:
-        sender_phone = msg_info["sender_phone"]
-        sender_name = msg_info["sender_name"]
-        text = msg_info["text"]
-        
-        if text:
-            print(f"\n📩 [WhatsApp 수신] {sender_name}({sender_phone}): '{text}'")
-            try:
-                # 2. AI 에이전트 실행
-                ai_reply = run_agent(user_message=text, sender_name=sender_name)
-                print(f"🤖 [AI 답변]\n{ai_reply}")
-                
-                # 3. WhatsApp 메시지 발송
-                res = send_whatsapp_message(sender_phone, ai_reply)
-                print(f"📨 [발송 완료]: {res}")
-            except Exception as agent_err:
-                print(f"❌ 메시지 처리 중 오류: {agent_err}")
-                send_whatsapp_message(sender_phone, f"죄송합니다, {sender_name}님. 요청을 처리하는 중 일시적인 오류가 발생했습니다.")
+        # 일반 GET 요청 시 헬스체크 반환
+        account_info = get_account_status()
+        return JSONResponse(content={
+            "status": "healthy",
+            "service": "KTK WMS WhatsApp AI Agent",
+            "platform": "Vercel Serverless",
+            "requested_path": f"/{full_path}",
+            "whatsapp_account": account_info
+        }, status_code=200)
 
-    # Meta 서버에는 항상 200 OK 응답 반환
-    return Response(content="EVENT_RECEIVED", status_code=200)
+    # 2. WhatsApp 실시간 메시지 수신 (POST 요청)
+    elif method == "POST":
+        try:
+            body = await request.json()
+        except Exception as e:
+            print(f"❌ JSON 파싱 실패: {e}")
+            return JSONResponse(content={"status": "invalid json"}, status_code=400)
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("api.index:app", host="0.0.0.0", port=8000, reload=True)
+        # 메시지 파싱
+        msg_info = parse_incoming_message(body)
+        if msg_info:
+            sender_phone = msg_info["sender_phone"]
+            sender_name = msg_info["sender_name"]
+            text = msg_info["text"]
+
+            if text:
+                print(f"\n📩 [WhatsApp 수신] {sender_name}({sender_phone}): '{text}'")
+                try:
+                    # AI 에이전트 실행 및 회신 발송
+                    ai_reply = run_agent(user_message=text, sender_name=sender_name)
+                    print(f"🤖 [AI 답변]\n{ai_reply}")
+                    res = send_whatsapp_message(sender_phone, ai_reply)
+                    print(f"📨 [WhatsApp 발송 결과]: {res}")
+                except Exception as agent_err:
+                    print(f"❌ 에이전트 오류: {agent_err}")
+                    send_whatsapp_message(sender_phone, f"죄송합니다, {sender_name}님. 요청을 처리하는 중 일시적인 오류가 발생했습니다.")
+
+        return Response(content="EVENT_RECEIVED", status_code=200)
+
+    return Response(content="Method Not Allowed", status_code=405)
