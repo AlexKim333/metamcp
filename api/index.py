@@ -37,12 +37,16 @@ MAX_MESSAGE_AGE_SECONDS = 120
 async def handle_all_requests(request: Request, full_path: str = ""):
     method = request.method
     query_params = request.query_params
-    path = full_path.strip("/").lower()
+    
+    # URL 경로 다각도 검사 (full_path 또는 request.url.path 모두 대응)
+    raw_path = request.url.path.strip("/").lower()
+    fp_path = full_path.strip("/").lower()
+    combined_path = f"{raw_path} {fp_path}"
 
     # =========================================================================
     # 1. API 엔드포인트 처리 (POST /api/login, GET/POST /api/settings, /api/test-agent)
     # =========================================================================
-    if path == "api/login" and method == "POST":
+    if "api/login" in combined_path and method == "POST":
         try:
             data = await request.json()
             pwd = data.get("password")
@@ -53,7 +57,7 @@ async def handle_all_requests(request: Request, full_path: str = ""):
         except Exception as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
-    if path == "api/settings":
+    if "api/settings" in combined_path:
         if method == "GET":
             return JSONResponse(get_settings())
         elif method == "POST":
@@ -64,7 +68,7 @@ async def handle_all_requests(request: Request, full_path: str = ""):
             except Exception as e:
                 return JSONResponse({"success": False, "error": str(e)}, status_code=400)
 
-    if path == "api/test-agent" and method == "POST":
+    if "api/test-agent" in combined_path and method == "POST":
         try:
             data = await request.json()
             msg = data.get("message", "").strip()
