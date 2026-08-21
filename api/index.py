@@ -2,7 +2,6 @@ import os
 import sys
 import time
 
-# 프로젝트 루트 디렉토리를 Python Path에 추가
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
@@ -35,14 +34,8 @@ VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secre
 MAX_MESSAGE_AGE_SECONDS = 120
 
 # ---------------------------------------------------------------------------
-# 1. ADMIN DASHBOARD & SETTINGS API ROUTES
+# API 라우트
 # ---------------------------------------------------------------------------
-
-@app.get("/")
-@app.get("/admin")
-@app.get("/dashboard")
-async def serve_admin_dashboard():
-    return HTMLResponse(content=get_dashboard_html(), status_code=200)
 
 @app.post("/api/login")
 async def admin_login(request: Request):
@@ -75,14 +68,13 @@ async def test_agent_sandbox(request: Request):
     return JSONResponse({"reply": reply})
 
 # ---------------------------------------------------------------------------
-# 2. META WHATSAPP WEBHOOK & CATCH-ALL ROUTE
+# CATCH-ALL 라우트: 브라우저 접속은 HTML 대시보드 / Meta Webhook은 웹훅 처리
 # ---------------------------------------------------------------------------
 
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
-async def catch_all_handler(request: Request, full_path: str = ""):
+async def handle_everything(request: Request, full_path: str = ""):
     method = request.method
     query_params = request.query_params
-    req_path = request.url.path
 
     # [GET 요청]
     if method == "GET":
@@ -90,27 +82,17 @@ async def catch_all_handler(request: Request, full_path: str = ""):
         token = query_params.get("hub.verify_token")
         challenge = query_params.get("hub.challenge")
 
-        # A. Meta Webhook Verification
-        if mode or token:
-            if mode == "subscribe" and token == VERIFY_TOKEN:
+        # 1. Meta Webhook 등록 검증 (hub.mode = subscribe)
+        if mode == "subscribe":
+            if token == VERIFY_TOKEN:
                 return PlainTextResponse(content=str(challenge), status_code=200)
             else:
                 raise HTTPException(status_code=403, detail="Verification token mismatch")
 
-        # B. 명시적 /webhook 헬스체크 요청인 경우에만 JSON 반환
-        if "webhook" in req_path and not ("hub.mode" in query_params):
-            account_info = get_account_status()
-            return JSONResponse(content={
-                "status": "healthy",
-                "service": "ladypolo WhatsApp AI Agent",
-                "platform": "Vercel Serverless",
-                "whatsapp_account": account_info
-            }, status_code=200)
-
-        # C. 브라우저로 접속한 모든 일반 GET 요청은 관리자 대시보드 HTML 서빙!
+        # 2. 그 외 모든 브라우저 GET 요청은 관리자 대시보드 HTML 반환!
         return HTMLResponse(content=get_dashboard_html(), status_code=200)
 
-    # [POST 요청 - WhatsApp 메시지 수신]
+    # [POST 요청: Meta WhatsApp 메시지 수신]
     elif method == "POST":
         try:
             body = await request.json()
@@ -145,7 +127,7 @@ async def catch_all_handler(request: Request, full_path: str = ""):
                     send_whatsapp_message(sender_phone, reply_text)
                     return Response(content="EVENT_RECEIVED", status_code=200)
 
-                # Case B: 텍스트 입력
+                # Case B: 일반 텍스트 입력
                 if text:
                     print(f"📩 [수신] {sender_name}: '{text}'")
                     bypass_res = try_zero_token_local_bypass(text, sender_name, user_lang=user_lang)
