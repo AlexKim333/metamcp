@@ -25,22 +25,21 @@ MODEL_CASCADE = [
 ]
 
 SYSTEM_INSTRUCTION = """
-당신은 KTK WMS(멕시코 의류/패션 물류 및 재고 관리 시스템)의 WhatsApp 전용 AI 비서입니다.
-현장 관리자 및 직원들이 모바일 WhatsApp을 통해 재고, 품목, 단가, 지점 현황을 물어보면 제공된 도구(Tools)를 활용하여 실시간 ERPNext 데이터를 조회하고 정확하게 답변하세요.
+당신은 **ladypolo(멕시코 의류/패션 물류 및 재고 관리 시스템)**의 WhatsApp 전용 AI 비서입니다.
+현장 관리자 및 직원들이 WhatsApp을 통해 재고, 품목, 단가, 지점 현황을 물어보면 제공된 도구(Tools)를 활용하여 실시간 데이터를 조회하고 정확하게 답변하세요.
 
 [핵심 행동 수칙]
-1. 언어 대응:
-   - 사용자가 한국어로 질문하면 한국어로 친절하고 명확하게 답변합니다.
-   - 사용자가 스페인어로 질문하면 자연스러운 멕시코 비즈니스 스페인어(Español)로 답변합니다.
-2. 수량 표기 원칙:
-   - 재고를 안내할 때는 총 수량(낱개)뿐만 아니라 **박스(Cajas/Box)** 수량과 **잔여 낱개(Pzs/Eaches)**를 함께 알기 쉽게 표기합니다.
-   - 예: "📦 [MAIN] ALARCON: 4박스 (총 1,600개)"
-3. WhatsApp 모바일 최적화 포맷:
+1. 정체성:
+   - 당신의 이름/브랜드는 **ladypolo 비서** (스페인어: **Asistente de ladypolo**)입니다.
+2. 엄격한 업무 범위 (토큰 절약 가드레일):
+   - 당신은 **오직 ladypolo 재고, 품목, 창고, 단가, 전표 등 물류 업무만** 수행합니다.
+   - 날씨, 번역, 일반 상식, 코딩, 일상 잡담 등 물류와 무관한 질문은 "죄송하지만 ladypolo 재고 및 물류 관련 업무만 지원합니다."라며 1문장으로 정중히 거절하고 관련 업무를 안내하세요.
+3. 언어 대응:
+   - 한국어 질문에는 한국어로, 스페인어 질문에는 자연스러운 멕시코 비즈니스 스페인어(Español)로 답변합니다.
+4. 수량 표기 원칙:
+   - 총 낱개 수량과 함께 **박스(Cajas/Box)** 수량을 반드시 알기 쉽게 표기합니다.
+5. WhatsApp 모바일 최적화:
    - 불필요하게 긴 설명은 피하고, 핵심 정보 위주로 이모지와 불릿 포인트를 활용하여 한눈에 들어오게 정리합니다.
-4. 모호한 품목명 처리:
-   - 사용자가 품목명을 일부만 말한 경우(예: "021G 재고 알려줘"), 먼저 `search_items`로 품목 목록을 찾고 연관된 품목들의 재고를 조회하여 안내합니다.
-5. 데이터 부재 시:
-   - 검색 결과가 없거나 재고가 0인 경우, 솔직하고 명확하게 안내합니다.
 """
 
 def create_gemini_client():
@@ -49,18 +48,12 @@ def create_gemini_client():
     return genai.Client(api_key=GEMINI_API_KEY)
 
 def emergency_local_fallback(query: str, sender_name: str) -> str:
-    """
-    [AI 지연/장애 시 긴급 알림 및 로컬 즉시 검색 폴백]
-    Gemini API 장애 발생 시 사용자에게 AI 지연 알림을 명확히 전달하고,
-    ERPNext 로컬 직접 검색 결과를 대신 제공합니다.
-    """
-    print(f"🚨 [AI 접속 지연/장애 감지 ➔ 긴급 알림 및 로컬 폴백 발동] Query: '{query}'")
-    
-    # 1. 로컬 품목 검색 시도
+    """[비상 폴백] AI 전체 지연 시 로컬 검색으로 즉각 응답"""
+    print(f"🚨 [Emergency Fallback Triggered] Query: '{query}'")
     items = erpnext_tools.search_items(query, limit=5)
     if items:
         lines = [
-            f"⚠️ **[안내] AI 서버 응답이 지연되어 기본 시스템 검색으로 즉시 안내해 드립니다.** ({sender_name}님)\n",
+            f"⚠️ **[안내] AI 서버 응답이 지연되어 ladypolo 기본 검색으로 안내해 드립니다.** ({sender_name}님)\n",
             f"🔍 **'{query}' 관련 품목 실시간 재고:**"
         ]
         for it in items:
@@ -72,23 +65,21 @@ def emergency_local_fallback(query: str, sender_name: str) -> str:
             lines.append(f"\n📦 **[{name}]**")
             lines.append(f"• 총 재고: **{boxes}박스** ({qty:,}개) *(입수: {pack}개/box)*")
             
-            # 창고별 세부
             wh_list = [w for w in stock.get('warehouses', []) if w.get('actual_qty', 0) > 0]
             for w in wh_list:
                 lines.append(f"  📍 {w.get('warehouse')}: {w.get('boxes')}박스 ({int(w.get('actual_qty')):,}개)")
         return "\n".join(lines)
 
-    # 검색 결과조차 없는 경우
     return (
-        f"⚠️ **[시스템 알림]**\n"
-        f"현재 Google AI 서비스 응답이 일시적으로 지연되고 있습니다.\n"
-        f"입력하신 **'{query}'**에 해당하는 품목 코드를 찾지 못했으니, 정확한 품목명(예: `021G`, `P-160`)을 입력해 주세요!"
+        f"⚠️ **[ladypolo 알림]**\n"
+        f"입력하신 **'{query}'**에 해당하는 품목을 찾지 못했습니다.\n"
+        f"정확한 품목명(예: `021G`, `P-160`)을 입력해 주세요!"
     )
 
 def run_agent(user_message: str, sender_name: str = "사용자") -> str:
     """[통합 AI 에이전트 실행 파이프라인]"""
     if not user_message or not user_message.strip():
-        return f"안녕하세요, {sender_name}님! 무엇을 도와드릴까요?"
+        return f"안녕하세요, {sender_name}님! **ladypolo 비서**입니다. 무엇을 도와드릴까요?"
 
     raw_text = user_message.strip()
 
@@ -126,5 +117,5 @@ def run_agent(user_message: str, sender_name: str = "사용자") -> str:
         except Exception as e:
             print(f"⚠️ [Gemini 일시 실패] Model: {model_name} -> {e}")
 
-    # 4. [Tier 4] AI 전체 장애 시 긴급 알림 + 로컬 검색 즉시 회신
+    # 4. [Tier 4] AI 전체 장애 시 긴급 알림 + 로컬 검색 회신
     return emergency_local_fallback(normalized_text, sender_name)

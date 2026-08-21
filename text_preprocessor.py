@@ -7,7 +7,7 @@ COLOR_ALIASES = {
     '네그로': 'NEGRO', 'negro': 'NEGRO', '검정': 'NEGRO', '검정색': 'NEGRO', '블랙': 'NEGRO', 'black': 'NEGRO',
     '베이지': 'BEIGE', 'beige': 'BEIGE',
     '블랑코': 'BLANCO', 'blanco': 'BLANCO', '화이트': 'BLANCO', '하얀': 'BLANCO', '흰색': 'BLANCO', 'white': 'BLANCO',
-    '로호': 'ROJO', 'rojo': 'ROJO', '빨강': 'ROJO', '빨강색': 'ROJO', '빨간색': 'ROJO', 'red': 'ROJO',
+    '로호': 'ROJO', 'rojo': 'ROJO', '빨강': 'ROJO', '빨간색': 'ROJO', 'red': 'ROJO',
     '아술': 'AZUL', 'azul': 'AZUL', '파랑': 'AZUL', '파란색': 'AZUL', 'blue': 'AZUL',
     '마리노': 'MARINO', 'marino': 'MARINO', '곤색': 'MARINO', '남색': 'MARINO', 'navy': 'MARINO',
     '수르티도': 'SURTIDO', 'surtido': 'SURTIDO', '혼합': 'SURTIDO'
@@ -41,7 +41,7 @@ def spoken_numerals_to_digits(text: str) -> str:
 
 def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Optional[str]:
     """
-    [Tier 0: 토큰 0개 로컬 바이패스 엔진 (0.1초 초고속 즉답)]
+    [Tier 0: 토큰 0개 로컬 바이패스 엔진 (Lady Polo 비서)]
     """
     cleaned = text.strip()
     norm = spoken_numerals_to_digits(cleaned).lower()
@@ -49,19 +49,19 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
     # 1. 인사말
     if norm in ['hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches', 'que tal', 'hola!']:
         return (
-            f"👋 ¡Hola, {sender_name}! Soy el **Asistente AI de KTK WMS**.\n\n"
+            f"👋 ¡Hola, {sender_name}! Soy el **Asistente AI de ladypolo**.\n\n"
             "¿En qué puedo ayudarte hoy?\n"
             "• **Consultar existencias:** `stock de 021G`, `existencia P160`\n"
             "• **Buscar artículos:** `buscar 025G`\n"
             "• **Ver almacenes:** `almacenes` o `sucursales`"
         )
     if norm in ['안녕', '안녕하세요', '하이', '반가워', '안뇽', '대화 가능한가', '대화 가능한가요', '대화 가능해']:
-        return f"👋 안녕하세요, {sender_name}님! KTK WMS AI 에이전트입니다.\n\n재고 조회, 품목 검색, 창고 목록 등을 언제든 물어보세요!\n(예: 'P160 검정 재고', '창고 목록', '021G 재고')"
+        return f"👋 안녕하세요, {sender_name}님! **ladypolo 비서**입니다.\n\n재고 조회, 품목 검색, 창고 목록 등을 언제든 물어보세요!\n(예: 'P160 검정 재고', '창고 목록', '021G 재고')"
 
     # 2. 도움말
     if norm in ['ayuda', 'help', 'comandos', 'instrucciones']:
         return (
-            "📋 **Guía del Asistente KTK WMS en WhatsApp**\n\n"
+            "📋 **Guía del Asistente ladypolo en WhatsApp**\n\n"
             "• **Existencias:** `021G-AZUL-400 stock`, `stock de 3331 NEGRO`\n"
             "• **Búsqueda:** `buscar 025G`, `P-D60`\n"
             "• **Almacenes:** `almacenes`, `ver sucursales`\n"
@@ -69,7 +69,7 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
         )
     if norm in ['도움말', '명령어', '사용법']:
         return (
-            "📋 **KTK WMS WhatsApp 비서 사용 안내**\n\n"
+            "📋 **ladypolo WhatsApp 비서 사용 안내**\n\n"
             "• **재고 조회:** `021G-AZUL-400 재고`, `P160 빨강 재고`\n"
             "• **품목 검색:** `025G 검색`, `P-D60 찾아줘`\n"
             "• **창고 목록:** `창고 목록`, `지점 보여줘`\n"
@@ -81,7 +81,7 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
         warehouses = erpnext_tools.get_warehouses()
         if not warehouses:
             return "No se encontraron almacenes activos."
-        lines = ["🏬 **Lista de Almacenes Activos (KTK WMS)**\n"]
+        lines = ["🏬 **Lista de Almacenes Activos (ladypolo)**\n"]
         for w in warehouses:
             lines.append(f"• **{w.get('name')}** ({w.get('warehouse_name', '')})")
         return "\n".join(lines)
@@ -90,15 +90,14 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
         warehouses = erpnext_tools.get_warehouses()
         if not warehouses:
             return "현재 등록된 활성 창고 정보가 없습니다."
-        lines = ["🏬 **KTK WMS 활성 창고 목록**\n"]
+        lines = ["🏬 **ladypolo 활성 창고 목록**\n"]
         for w in warehouses:
             lines.append(f"• **{w.get('name')}** ({w.get('warehouse_name', '')})")
         return "\n".join(lines)
 
-    # 4. 품목 코드/색상 기반 즉시 재고 조회 (예: "P160 빨강색 재고", "P160 ROJO stock", "021G-AZUL-400 재고")
+    # 4. 품목 코드/색상 기반 즉시 재고 조회
     has_stock_query = any(k in norm for k in ['재고', 'stock', 'existencia', 'cuanto', 'cuánto', '몇개', '몇 개'])
     if has_stock_query:
-        # 단어 분리
         tokens = spoken_numerals_to_digits(cleaned).replace('?', '').replace('!', '').split()
         
         code_hint = ""
@@ -106,12 +105,10 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
         
         for t in tokens:
             t_upper = t.upper().strip()
-            # 색상 매칭
             for k_alias, std_val in COLOR_ALIASES.items():
                 if k_alias.upper() == t_upper or std_val == t_upper:
                     color_hint = std_val
                     break
-            # 코드 매칭 (영문/숫자 조합 또는 2자리 이상 숫자)
             clean_t = re.sub(r'[^A-Z0-9\-]', '', t_upper)
             if clean_t and clean_t not in COLOR_ALIASES.values():
                 if re.search(r'\d+', clean_t) or len(clean_t) >= 3:
@@ -119,7 +116,6 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
                         code_hint = clean_t
 
         if code_hint:
-            # P160 -> P-160 등 하이픈 변형 검색 지원
             search_queries = [code_hint]
             if re.match(r'^[A-Z]\d+', code_hint):
                 search_queries.append(f"{code_hint[0]}-{code_hint[1:]}")
@@ -145,7 +141,6 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
                         tot_qty = int(st['total_qty'])
                         pack = st.get('pack_qty', 1)
                         boxes = st.get('total_boxes', 0)
-                        eaches = st.get('total_eaches', 0)
                         wh_list = st.get('warehouses', [])
                         
                         if is_spanish:

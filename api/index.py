@@ -17,7 +17,7 @@ load_dotenv()
 from whatsapp_client import send_whatsapp_message, parse_incoming_message, get_account_status
 from agent import run_agent
 
-app = FastAPI(title="KTK WMS WhatsApp Agent on Vercel")
+app = FastAPI(title="ladypolo WhatsApp Agent on Vercel")
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
 
@@ -44,7 +44,7 @@ async def catch_all_handler(request: Request, full_path: str = ""):
         account_info = get_account_status()
         return JSONResponse(content={
             "status": "healthy",
-            "service": "KTK WMS WhatsApp AI Agent",
+            "service": "ladypolo WhatsApp AI Agent",
             "platform": "Vercel Serverless",
             "whatsapp_account": account_info
         }, status_code=200)
