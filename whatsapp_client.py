@@ -102,13 +102,13 @@ def parse_incoming_message(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         value = changes[0].get("value", {})
         messages = value.get("messages", [])
         if not messages:
-            # 상태 변경(status) 이벤트 등 메시지 수신이 아닌 경우
             return None
             
         msg = messages[0]
         sender_phone = msg.get("from")
         msg_type = msg.get("type")
         msg_id = msg.get("id")
+        msg_timestamp = int(msg.get("timestamp", 0))
         
         # 발신자 프로필 이름
         contacts = value.get("contacts", [])
@@ -118,7 +118,6 @@ def parse_incoming_message(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if msg_type == "text":
             text_body = msg.get("text", {}).get("body", "").strip()
         elif msg_type == "interactive":
-            # 버튼이나 리스트 선택 시
             interactive = msg.get("interactive", {})
             text_body = interactive.get("button_reply", {}).get("title") or interactive.get("list_reply", {}).get("title", "")
             
@@ -126,6 +125,7 @@ def parse_incoming_message(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "sender_phone": sender_phone,
             "sender_name": profile_name,
             "message_id": msg_id,
+            "timestamp": msg_timestamp,
             "message_type": msg_type,
             "text": text_body,
             "raw": msg

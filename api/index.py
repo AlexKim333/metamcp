@@ -21,17 +21,15 @@ app = FastAPI(title="KTK WMS WhatsApp Agent on Vercel")
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
 
-# 중복 응답 방지를 위한 Message ID 캐시 (최근 1000건)
-PROCESSED_MESSAGE_IDS = set()
-MAX_CACHE_SIZE = 1000
+# 최근 120초 내 유효 메시지만 처리 (Meta의 과거 재전송 패킷 완벽 차단)
+MAX_MESSAGE_AGE_SECONDS = 120
 
 @app.api_route("/{full_path:path}", methods=["GET", "POST"])
 async def catch_all_handler(request: Request, full_path: str = ""):
-    global PROCESSED_MESSAGE_IDS
     method = request.method
     query_params = request.query_params
 
-    # 1. Meta Webhook Verification (GET 요청)
+    # 1. Meta Webhook Verification (GET)
     if method == "GET":
         mode = query_params.get("hub.mode")
         token = query_params.get("hub.verify_token")
@@ -43,7 +41,6 @@ async def catch_all_handler(request: Request, full_path: str = ""):
             else:
                 raise HTTPException(status_code=403, detail="Verification token mismatch")
 
-        # 일반 GET 요청 시 헬스체크 반환
         account_info = get_account_status()
         return JSONResponse(content={
             "status": "healthy",
@@ -52,7 +49,7 @@ async def catch_all_handler(request: Request, full_path: str = ""):
             "whatsapp_account": account_info
         }, status_code=200)
 
-    # 2. WhatsApp 실시간 메시지 수신 (POST 요청)
+    # 2. WhatsApp 실시간 메시지 수신 (POST)
     elif method == "POST":
         try:
             body = await request.json()
@@ -60,30 +57,25 @@ async def catch_all_handler(request: Request, full_path: str = ""):
             print(f"❌ JSON 파싱 실패: {e}")
             return JSONResponse(content={"status": "invalid json"}, status_code=400)
 
-        # 메시지 정보 파싱
         msg_info = parse_incoming_message(body)
         
         if msg_info:
-            message_id = msg_info.get("message_id")
+            msg_timestamp = msg_info.get("timestamp", 0)
+            now = int(time.time())
+            
+            # [과거 재전송 유령 메시지 방어] 발송된 지 120초 이상 지난 메시지는 답장하지 않고 스킵
+            if msg_timestamp > 0 and (now - msg_timestamp > MAX_MESSAGE_AGE_SECONDS):
+                age = now - msg_timestamp
+                print(f"⏳ [오래된 재전송 메시지 스킵] 경과 시간: {age}초 (기준: {MAX_MESSAGE_AGE_SECONDS}초) | text='{msg_info.get('text')}'")
+                return Response(content="EVENT_RECEIVED", status_code=200)
+
             sender_phone = msg_info.get("sender_phone")
             sender_name = msg_info.get("sender_name")
             text = msg_info.get("text")
 
-            # [중복 방지 필터] 이미 처리한 메시지 ID인 경우 무시
-            if message_id:
-                if message_id in PROCESSED_MESSAGE_IDS:
-                    print(f"⏩ [중복 메시지 스킵] message_id={message_id}")
-                    return Response(content="EVENT_RECEIVED", status_code=200)
-                
-                # 캐시 관리
-                PROCESSED_MESSAGE_IDS.add(message_id)
-                if len(PROCESSED_MESSAGE_IDS) > MAX_CACHE_SIZE:
-                    PROCESSED_MESSAGE_IDS.pop()
-
             if text and sender_phone:
-                print(f"\n📩 [WhatsApp 수신] {sender_name}({sender_phone}): '{text}'")
+                print(f"\n📩 [WhatsApp 실시간 수신] {sender_name}({sender_phone}): '{text}'")
                 try:
-                    # AI 에이전트 실행 및 회신 발송
                     ai_reply = run_agent(user_message=text, sender_name=sender_name)
                     print(f"🤖 [AI 답변]\n{ai_reply}")
                     res = send_whatsapp_message(sender_phone, ai_reply)
