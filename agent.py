@@ -8,6 +8,7 @@ from google.genai import types
 
 import erpnext_tools
 from text_preprocessor import try_zero_token_local_bypass, spoken_numerals_to_digits
+from roles import get_user_role, ROLE_OWNER, ROLE_STAFF, ROLE_CUSTOMER
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
@@ -24,9 +25,24 @@ MODEL_CASCADE = [
     "gemini-3.1-flash-lite"
 ]
 
-SYSTEM_INSTRUCTION = """
+def build_system_instruction(user_role_info: Dict[str, Any]) -> str:
+    role = user_role_info.get("role", ROLE_CUSTOMER)
+    role_name = user_role_info.get("role_name", "고객")
+    
+    role_guideline = ""
+    if role == ROLE_OWNER:
+        role_guideline = "현재 대화 상대는 [오너/최고관리자]입니다. 모든 지점/창고의 상세 재고, 원가 및 단가, 전표 현황 등 모든 정보를 투명하고 상세하게 제공하세요."
+    elif role == ROLE_STAFF:
+        role_guideline = "현재 대화 상대는 [직원]입니다. 본사(ALARCON) 및 지점의 실시간 가용 재고, 기본 판매 단가, 이동 전표 관련 정보를 제공하세요."
+    else:
+        role_guideline = "현재 대화 상대는 [일반 고객]입니다. 내부 창고명(ALARCON, PANTACO 등)이나 정확한 내부 총수량은 비공개로 유지하고, 단순히 구매 가능 여부(가용 재고 유무: 있음/품절)와 컬러/사이즈 옵션, 소비자 판매 단가 위주로 친절하게 안내하세요."
+
+    return f"""
 당신은 **ladypolo(멕시코 의류/패션 물류 및 재고 관리 시스템)**의 WhatsApp 전용 AI 비서입니다.
-현장 관리자 및 직원들이 WhatsApp을 통해 재고, 품목, 단가, 지점 현황을 물어보면 제공된 도구(Tools)를 활용하여 실시간 데이터를 조회하고 정확하게 답변하세요.
+현장 관리자 및 직원, 고객들이 WhatsApp을 통해 재고, 품목, 단가, 지점 현황을 물어보면 제공된 도구(Tools)를 활용하여 실시간 데이터를 조회하고 정확하게 답변하세요.
+
+[접속자 역할 및 보안 수칙]
+{role_guideline}
 
 [핵심 행동 수칙]
 1. 정체성:
@@ -64,7 +80,6 @@ def emergency_local_fallback(query: str, sender_name: str) -> str:
             pack = stock.get('pack_qty', 1)
             lines.append(f"\n📦 **[{name}]**")
             lines.append(f"• 총 재고: **{boxes}박스** ({qty:,}개) *(입수: {pack}개/box)*")
-            
             wh_list = [w for w in stock.get('warehouses', []) if w.get('actual_qty', 0) > 0]
             for w in wh_list:
                 lines.append(f"  📍 {w.get('warehouse')}: {w.get('boxes')}박스 ({int(w.get('actual_qty')):,}개)")
@@ -76,32 +91,29 @@ def emergency_local_fallback(query: str, sender_name: str) -> str:
         f"정확한 품목명(예: `021G`, `P-160`)을 입력해 주세요!"
     )
 
-def run_agent(user_message: str, sender_name: str = "사용자") -> str:
-    """[통합 AI 에이전트 실행 파이프라인]"""
+def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: str = "") -> str:
+    """[역할 기반 통합 AI 에이전트 실행 파이프라인]"""
     if not user_message or not user_message.strip():
         return f"안녕하세요, {sender_name}님! **ladypolo 비서**입니다. 무엇을 도와드릴까요?"
 
     raw_text = user_message.strip()
+    user_role_info = get_user_role(sender_phone)
+    print(f"👤 [User Role] Phone={sender_phone} ➔ Role={user_role_info.get('role_name')}")
 
-    # 1. [Tier 0] 0-Token 로컬 바이패스 (0.1초 즉답)
-    local_reply = try_zero_token_local_bypass(raw_text, sender_name)
-    if local_reply:
-        print(f"⚡ [0-Token Local Bypass] '{raw_text}' -> 즉시 로컬 응답")
-        return local_reply
-
-    # 2. 텍스트 전처리 (수사/색상 정규화)
+    # 1. 텍스트 전처리 (수사/색상 정규화)
     normalized_text = spoken_numerals_to_digits(raw_text)
 
-    # 3. Gemini 고속 Flash 모델 Cascade
+    # 2. Gemini 고속 Flash 모델 Cascade
     client = create_gemini_client()
     tools = [
         erpnext_tools.search_items,
         erpnext_tools.get_item_stock,
         erpnext_tools.get_warehouses,
-        erpnext_tools.get_item_price
+        erpnext_tools.get_item_price,
+        erpnext_tools.get_recent_stock_transfers
     ]
     config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_INSTRUCTION,
+        system_instruction=build_system_instruction(user_role_info),
         temperature=0.2,
         tools=tools
     )
@@ -117,5 +129,5 @@ def run_agent(user_message: str, sender_name: str = "사용자") -> str:
         except Exception as e:
             print(f"⚠️ [Gemini 일시 실패] Model: {model_name} -> {e}")
 
-    # 4. [Tier 4] AI 전체 장애 시 긴급 알림 + 로컬 검색 회신
+    # 3. [Tier 4] AI 전체 장애 시 긴급 알림 + 로컬 검색 회신
     return emergency_local_fallback(normalized_text, sender_name)

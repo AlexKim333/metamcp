@@ -24,82 +24,139 @@ def spoken_numerals_to_digits(text: str) -> str:
     if not text:
         return ""
     s = text.strip()
-    
-    # 3음절 이상의 연속된 한글 숫자 ("삼삼삼일" -> "3331")
     def replace_digit_seq(match):
         seq = match.group(0)
         digits = [str(KO_DIGITS[ch]) for ch in seq if ch in KO_DIGITS]
         return "".join(digits) if len(digits) >= 2 else seq
 
     s = re.sub(r'[영공일이삼사오육칠팔구]{2,}', replace_digit_seq, s)
-    
-    # 색상 별칭 치환
     for alias, standard in COLOR_ALIASES.items():
         s = re.sub(rf'\b{alias}\b', standard, s, flags=re.IGNORECASE)
-
     return s
 
-def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Optional[str]:
+def get_welcome_buttons_payload(sender_name: str = "사용자", is_spanish: bool = False) -> Dict[str, Any]:
     """
-    [Tier 0: 토큰 0개 로컬 바이패스 엔진 (Lady Polo 비서)]
+    첫 인사 또는 메뉴 요청 시 하단에 띄울 3대 핵심 퀵 버튼 페이로드 생성
+    """
+    if is_spanish:
+        body_text = f"👋 ¡Hola, {sender_name}! Soy el **Asistente de ladypolo**.\n\nPor favor, selecciona una opción o escribe tu consulta directamente:"
+        buttons = [
+            {"id": "BTN_STOCK", "title": "📦 Consultar Stock"},
+            {"id": "BTN_TRANSFERS", "title": "📋 Ver Traspasos"},
+            {"id": "BTN_HELP", "title": "❓ Ayuda / Info"}
+        ]
+    else:
+        body_text = f"👋 안녕하세요, {sender_name}님! **ladypolo 비서**입니다.\n\n원하시는 업무를 아래 버튼에서 선택하시거나 편하게 질문해 주세요:"
+        buttons = [
+            {"id": "BTN_STOCK", "title": "📦 재고 조회"},
+            {"id": "BTN_TRANSFERS", "title": "📋 최근 이동 전표"},
+            {"id": "BTN_HELP", "title": "❓ 사용 안내"}
+        ]
+    return {
+        "body_text": body_text,
+        "buttons": buttons
+    }
+
+def handle_quick_button_click(button_id: str, sender_name: str = "사용자") -> str:
+    """
+    [버튼 클릭 0-Token 초고속 즉답 처리]
+    """
+    if button_id == "BTN_STOCK":
+        return (
+            "📦 **재고 조회 안내**\n\n"
+            "조회하고 싶으신 **품목 코드나 색상**을 입력해 주세요!\n"
+            "• 예시: `021G 재고`, `P160 NEGRO`, `3331`\n"
+            "• 스페인어: `stock de 021G`, `existencia P160`"
+        )
+    elif button_id == "BTN_TRANSFERS":
+        transfers = erpnext_tools.get_recent_stock_transfers(limit=5)
+        if not transfers:
+            return "📋 최근 등록된 지점 이동 전표가 없습니다."
+        
+        lines = ["📋 **최근 지점 이동(Traspasos) 전표 현황 (최근 5건)**\n"]
+        for tr in transfers:
+            docstatus = tr.get("docstatus", 0)
+            status_badge = "✅ 확정(Submit)" if docstatus == 1 else "📝 임시저장(Draft)"
+            name = tr.get("name")
+            date = tr.get("posting_date")
+            from_wh = tr.get("from_warehouse") or "지점"
+            to_wh = tr.get("to_warehouse") or "지점"
+            lines.append(f"• **[{name}]** ({date}) - {status_badge}")
+            lines.append(f"  출발: {from_wh} ➔ 도착: {to_wh}\n")
+        return "\n".join(lines)
+
+    elif button_id == "BTN_HELP":
+        return (
+            "📋 **ladypolo WhatsApp 비서 사용 안내**\n\n"
+            "• **재고 조회:** `021G-AZUL-400 재고`, `P160 빨강 재고`\n"
+            "• **품목 검색:** `025G 검색`, `P-D60 찾아줘`\n"
+            "• **창고 목록:** `창고 목록`, `almacenes`\n"
+            "• **단가 확인:** `021G 가격`, `단가 알려줘`\n\n"
+            "한국어와 스페인어 모두 완벽 지원합니다!"
+        )
+    
+    return "원하시는 작업을 입력해 주세요."
+
+def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Optional[Dict[str, Any]]:
+    """
+    [Tier 0: 0-Token 로컬 바이패스 (텍스트 응답 또는 버튼 메시지 페이로드 반환)]
+    반환 형식:
+      - {"type": "text", "content": "..."}
+      - {"type": "buttons", "payload": {...}}
+      - None (Gemini 호출 위임)
     """
     cleaned = text.strip()
     norm = spoken_numerals_to_digits(cleaned).lower()
 
-    # 1. 인사말
-    if norm in ['hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches', 'que tal', 'hola!']:
-        return (
-            f"👋 ¡Hola, {sender_name}! Soy el **Asistente AI de ladypolo**.\n\n"
-            "¿En qué puedo ayudarte hoy?\n"
-            "• **Consultar existencias:** `stock de 021G`, `existencia P160`\n"
-            "• **Buscar artículos:** `buscar 025G`\n"
-            "• **Ver almacenes:** `almacenes` o `sucursales`"
-        )
-    if norm in ['안녕', '안녕하세요', '하이', '반가워', '안뇽', '대화 가능한가', '대화 가능한가요', '대화 가능해']:
-        return f"👋 안녕하세요, {sender_name}님! **ladypolo 비서**입니다.\n\n재고 조회, 품목 검색, 창고 목록 등을 언제든 물어보세요!\n(예: 'P160 검정 재고', '창고 목록', '021G 재고')"
+    # 1. 인사말 및 메뉴 요청 -> 버튼 메시지 반환!
+    if norm in ['hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches', 'que tal', 'hola!', 'menu', 'menú']:
+        is_sp = any(k in norm for k in ['hola', 'buen', 'tal', 'menu', 'menú'])
+        return {"type": "buttons", "payload": get_welcome_buttons_payload(sender_name, is_spanish=is_sp)}
+
+    if norm in ['안녕', '안녕하세요', '하이', '반가워', '안뇽', '대화 가능한가', '대화 가능한가요', '대화 가능해', '메뉴', '시작']:
+        return {"type": "buttons", "payload": get_welcome_buttons_payload(sender_name, is_spanish=False)}
 
     # 2. 도움말
     if norm in ['ayuda', 'help', 'comandos', 'instrucciones']:
-        return (
+        return {"type": "text", "content": (
             "📋 **Guía del Asistente ladypolo en WhatsApp**\n\n"
             "• **Existencias:** `021G-AZUL-400 stock`, `stock de 3331 NEGRO`\n"
             "• **Búsqueda:** `buscar 025G`, `P-D60`\n"
             "• **Almacenes:** `almacenes`, `ver sucursales`\n"
             "• **Precios:** `precio de 021G`"
-        )
+        )}
     if norm in ['도움말', '명령어', '사용법']:
-        return (
+        return {"type": "text", "content": (
             "📋 **ladypolo WhatsApp 비서 사용 안내**\n\n"
             "• **재고 조회:** `021G-AZUL-400 재고`, `P160 빨강 재고`\n"
             "• **품목 검색:** `025G 검색`, `P-D60 찾아줘`\n"
             "• **창고 목록:** `창고 목록`, `지점 보여줘`\n"
             "• **단가 확인:** `021G 가격`, `단가 알려줘`"
-        )
+        )}
 
     # 3. 창고 목록
     if norm in ['almacenes', 'sucursales', 'ver almacenes', 'lista de almacenes', 'almacen']:
         warehouses = erpnext_tools.get_warehouses()
         if not warehouses:
-            return "No se encontraron almacenes activos."
+            return {"type": "text", "content": "No se encontraron almacenes activos."}
         lines = ["🏬 **Lista de Almacenes Activos (ladypolo)**\n"]
         for w in warehouses:
             lines.append(f"• **{w.get('name')}** ({w.get('warehouse_name', '')})")
-        return "\n".join(lines)
+        return {"type": "text", "content": "\n".join(lines)}
 
     if norm in ['창고 목록', '창고목록', '지점 목록', '지점목록', '창고', '지점']:
         warehouses = erpnext_tools.get_warehouses()
         if not warehouses:
-            return "현재 등록된 활성 창고 정보가 없습니다."
+            return {"type": "text", "content": "현재 등록된 활성 창고 정보가 없습니다."}
         lines = ["🏬 **ladypolo 활성 창고 목록**\n"]
         for w in warehouses:
             lines.append(f"• **{w.get('name')}** ({w.get('warehouse_name', '')})")
-        return "\n".join(lines)
+        return {"type": "text", "content": "\n".join(lines)}
 
     # 4. 품목 코드/색상 기반 즉시 재고 조회
     has_stock_query = any(k in norm for k in ['재고', 'stock', 'existencia', 'cuanto', 'cuánto', '몇개', '몇 개'])
     if has_stock_query:
         tokens = spoken_numerals_to_digits(cleaned).replace('?', '').replace('!', '').split()
-        
         code_hint = ""
         color_hint = ""
         
@@ -164,6 +221,6 @@ def try_zero_token_local_bypass(text: str, sender_name: str = "사용자") -> Op
                         res_lines.append("")
 
                 if res_lines:
-                    return "\n".join(res_lines).strip()
+                    return {"type": "text", "content": "\n".join(res_lines).strip()}
 
     return None

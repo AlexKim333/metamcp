@@ -1,6 +1,6 @@
 import os
 import requests
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,8 +28,6 @@ def get_account_status() -> Dict[str, Any]:
 def send_whatsapp_message(recipient_phone: str, text: str) -> Dict[str, Any]:
     """
     WhatsApp 일반 텍스트 메시지 발송
-    :param recipient_phone: 수신자 전화번호 (국가번호 포함, '+' 제외, 예: 5216611234567 또는 821012345678)
-    :param text: 발송할 메시지 본문
     """
     clean_phone = recipient_phone.replace("+", "").replace("-", "").replace(" ", "")
     url = f"{BASE_URL}/messages"
@@ -56,22 +54,47 @@ def send_whatsapp_message(recipient_phone: str, text: str) -> Dict[str, Any]:
             "error": str(e)
         }
 
-def send_whatsapp_template(recipient_phone: str, template_name: str = "hello_world", lang_code: str = "en_US") -> Dict[str, Any]:
+def send_interactive_buttons(
+    recipient_phone: str,
+    body_text: str,
+    buttons: List[Dict[str, str]],
+    header_text: str = "",
+    footer_text: str = "ladypolo AI Assistant"
+) -> Dict[str, Any]:
     """
-    WhatsApp 사전 승인된 템플릿 메시지 발송
+    WhatsApp 인터랙티브 퀵 버튼 메시지 발송 (최대 3개 버튼)
+    :param buttons: [{"id": "BTN_STOCK", "title": "📦 재고 조회"}, ...] (title 최대 20자)
     """
     clean_phone = recipient_phone.replace("+", "").replace("-", "").replace(" ", "")
     url = f"{BASE_URL}/messages"
+
+    formatted_buttons = []
+    for btn in buttons[:3]:
+        formatted_buttons.append({
+            "type": "reply",
+            "reply": {
+                "id": btn["id"],
+                "title": btn["title"][:20]  # WhatsApp 제한 20자
+            }
+        })
+
+    interactive_payload: Dict[str, Any] = {
+        "type": "button",
+        "body": {"text": body_text},
+        "action": {"buttons": formatted_buttons}
+    }
+
+    if header_text:
+        interactive_payload["header"] = {"type": "text", "text": header_text}
+    if footer_text:
+        interactive_payload["footer"] = {"text": footer_text}
+
     payload = {
         "messaging_product": "whatsapp",
+        "recipient_type": "individual",
         "to": clean_phone,
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {
-                "code": lang_code
-            }
-        }
+        "type": "interactive",
+        "interactive": interactive_payload
     }
 
     try:
@@ -88,7 +111,7 @@ def send_whatsapp_template(recipient_phone: str, template_name: str = "hello_wor
 
 def parse_incoming_message(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Meta Webhook 페이로드로부터 사용자 메시지 정보 추출
+    Meta Webhook 페이로드로부터 사용자 메시지 정보 추출 (텍스트 & 버튼 클릭 지원)
     """
     try:
         entries = payload.get("entry", [])
@@ -115,11 +138,21 @@ def parse_incoming_message(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         profile_name = contacts[0].get("profile", {}).get("name", "User") if contacts else "User"
         
         text_body = ""
+        button_id = None
+
         if msg_type == "text":
             text_body = msg.get("text", {}).get("body", "").strip()
         elif msg_type == "interactive":
             interactive = msg.get("interactive", {})
-            text_body = interactive.get("button_reply", {}).get("title") or interactive.get("list_reply", {}).get("title", "")
+            itype = interactive.get("type")
+            if itype == "button_reply":
+                button_reply = interactive.get("button_reply", {})
+                button_id = button_reply.get("id")
+                text_body = button_reply.get("title", "").strip()
+            elif itype == "list_reply":
+                list_reply = interactive.get("list_reply", {})
+                button_id = list_reply.get("id")
+                text_body = list_reply.get("title", "").strip()
             
         return {
             "sender_phone": sender_phone,
@@ -127,6 +160,7 @@ def parse_incoming_message(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "message_id": msg_id,
             "timestamp": msg_timestamp,
             "message_type": msg_type,
+            "button_id": button_id,
             "text": text_body,
             "raw": msg
         }

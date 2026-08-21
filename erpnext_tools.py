@@ -206,3 +206,22 @@ def get_item_price(item_code: str) -> Dict[str, Any]:
         return {"success": False, "error": res.text}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+def get_recent_stock_transfers(limit: int = 5) -> List[Dict[str, Any]]:
+    """최근 생성된 지점 이동 전표(Stock Entry - Material Transfer) 목록을 조회합니다."""
+    headers = _get_headers()
+    params = {
+        "fields": json.dumps(["name", "posting_date", "posting_time", "stock_entry_type", "docstatus", "from_warehouse", "to_warehouse", "total_outgoing_value"]),
+        "filters": json.dumps([["stock_entry_type", "=", "Material Transfer"]]),
+        "order_by": "creation desc",
+        "limit_page_length": limit
+    }
+    try:
+        res = requests.get(f"{ERPNEXT_URL}/api/resource/Stock Entry", headers=headers, params=params, timeout=10)
+        if res.status_code == 200:
+            return res.json().get("data", [])
+        return []
+    except Exception as e:
+        print(f"❌ 최근 전표 조회 오류: {e}")
+        return []
+
