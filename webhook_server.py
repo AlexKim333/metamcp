@@ -1,7 +1,7 @@
 import os
 import sys
 import uvicorn
-from fastapi import FastAPI, Request, Query, HTTPException, Response
+from fastapi import FastAPI, Request, Query, HTTPException, Response, BackgroundTasks
 from fastapi.responses import PlainTextResponse, JSONResponse
 from dotenv import load_dotenv
 
@@ -9,13 +9,27 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-from whatsapp_client import send_whatsapp_message, parse_incoming_message, get_account_status
-
 load_dotenv()
+
+from whatsapp_client import send_whatsapp_message, parse_incoming_message, get_account_status
+from agent import run_agent
 
 app = FastAPI(title="KTK WMS WhatsApp Agent Webhook Server")
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "ktk_wms_webhook_secret_2026")
+
+def process_and_reply(sender_phone: str, sender_name: str, text: str):
+    """
+    백그라운드에서 AI 에이전트 실행 후 WhatsApp으로 답변 전송
+    (Webhook 200 OK 응답 타임아웃 방지)
+    """
+    print(f"\n🧠 [AI 에이전트 처리 시작] from={sender_name}({sender_phone}) | query='{text}'")
+    ai_reply = run_agent(user_message=text, sender_name=sender_name)
+    print(f"🤖 [AI 답변 생성 완료]\n{ai_reply}")
+    
+    print(f"📤 [WhatsApp 회신 발송] to={sender_phone}...")
+    res = send_whatsapp_message(sender_phone, ai_reply)
+    print(f"📨 [WhatsApp 발송 결과]: {res}")
 
 @app.get("/")
 def root():
@@ -51,9 +65,9 @@ def verify_webhook(
     raise HTTPException(status_code=400, detail="Missing parameters")
 
 @app.post("/webhook")
-async def receive_webhook(request: Request):
+async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    WhatsApp으로부터 메시지 수신 시 호출되는 엔드포인트
+    WhatsApp으로부터 실시간 메시지 수신 시 호출되는 엔드포인트
     """
     try:
         body = await request.json()
@@ -69,16 +83,12 @@ async def receive_webhook(request: Request):
         sender_name = msg_info["sender_name"]
         text = msg_info["text"]
         
-        print(f"\n📩 [WhatsApp 수신] 발신자: {sender_name} ({sender_phone}) | 내용: '{text}'")
-        
-        # 1단계 에코 응답 (테스트용)
-        reply_text = f"🤖 [KTK WMS 에이전트]\n안녕하세요, {sender_name}님!\n보내주신 메시지를 정상적으로 수신했습니다:\n\"{text}\"\n\n(현재 1단계 연동 테스트 진행 중입니다.)"
-        
-        print(f"📤 [WhatsApp 회신 발송 중] to={sender_phone}...")
-        res = send_whatsapp_message(sender_phone, reply_text)
-        print(f"📨 [WhatsApp 발송 결과] {res}")
+        if text:
+            print(f"\n📩 [WhatsApp 메시지 도착] 발신자: {sender_name} ({sender_phone}) | 내용: '{text}'")
+            # 백그라운드 태스크로 AI 에이전트 실행 및 회신 전송
+            background_tasks.add_task(process_and_reply, sender_phone, sender_name, text)
 
-    # Meta 서버에는 항상 200 OK를 빠르게 응답해야 재전송 루프가 발생하지 않음
+    # Meta 서버에는 지체 없이 200 OK를 응답
     return Response(content="EVENT_RECEIVED", status_code=200)
 
 if __name__ == "__main__":
