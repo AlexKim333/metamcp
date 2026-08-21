@@ -213,7 +213,6 @@ def get_dashboard_html() -> str:
                                         </tr>
                                     </thead>
                                     <tbody id="staffTableBody" class="divide-y divide-slate-800 text-slate-300">
-                                        <!-- Dynamic Staff Rows -->
                                     </tbody>
                                 </table>
                             </div>
@@ -288,19 +287,25 @@ def get_dashboard_html() -> str:
             }
         });
 
+        // 1. LOGIN VIA ACTION DISPATCH
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const pwd = document.getElementById('adminPassword').value;
-            const res = await fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: pwd })
-            });
-            const data = await res.json();
-            if (data.success) {
-                sessionStorage.setItem('admin_token', 'authenticated');
-                showDashboard();
-            } else {
+            try {
+                const res = await fetch('/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'login', password: pwd })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    sessionStorage.setItem('admin_token', 'authenticated');
+                    showDashboard();
+                } else {
+                    document.getElementById('loginError').classList.remove('hidden');
+                }
+            } catch (err) {
+                document.getElementById('loginError').innerText = "연결 오류가 발생했습니다.";
                 document.getElementById('loginError').classList.remove('hidden');
             }
         });
@@ -319,16 +324,24 @@ def get_dashboard_html() -> str:
         }
 
         async function loadSettings() {
-            const res = await fetch('/api/settings');
-            currentSettings = await res.json();
+            try {
+                const res = await fetch('/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'get_settings' })
+                });
+                currentSettings = await res.json();
 
-            document.getElementById('maxOrderLimit').value = currentSettings.max_auto_order_limit || 50000;
-            document.getElementById('limitDisplay').innerText = (currentSettings.max_auto_order_limit || 50000).toLocaleString() + ' MXN';
-            document.getElementById('strictGuardrail').checked = currentSettings.strict_business_guardrail !== false;
-            document.getElementById('showQuickButtons').checked = currentSettings.show_quick_buttons !== false;
-            document.getElementById('ownerPhones').value = (currentSettings.owner_phones || []).join(', ');
+                document.getElementById('maxOrderLimit').value = currentSettings.max_auto_order_limit || 50000;
+                document.getElementById('limitDisplay').innerText = (currentSettings.max_auto_order_limit || 50000).toLocaleString() + ' MXN';
+                document.getElementById('strictGuardrail').checked = currentSettings.strict_business_guardrail !== false;
+                document.getElementById('showQuickButtons').checked = currentSettings.show_quick_buttons !== false;
+                document.getElementById('ownerPhones').value = (currentSettings.owner_phones || []).join(', ');
 
-            renderStaffTable(currentSettings.staff_members || []);
+                renderStaffTable(currentSettings.staff_members || []);
+            } catch (err) {
+                console.error("설정 로드 실패:", err);
+            }
         }
 
         function renderStaffTable(staffList) {
@@ -384,14 +397,17 @@ def get_dashboard_html() -> str:
             const owners = ownerRaw.split(',').map(s => s.trim()).filter(s => s.length > 0);
 
             const payload = {
-                max_auto_order_limit: newLimit,
-                strict_business_guardrail: strictG,
-                show_quick_buttons: showQB,
-                owner_phones: owners,
-                staff_members: currentSettings.staff_members || []
+                action: 'save_settings',
+                settings: {
+                    max_auto_order_limit: newLimit,
+                    strict_business_guardrail: strictG,
+                    show_quick_buttons: showQB,
+                    owner_phones: owners,
+                    staff_members: currentSettings.staff_members || []
+                }
             };
 
-            const res = await fetch('/api/settings', {
+            const res = await fetch('/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -423,7 +439,6 @@ def get_dashboard_html() -> str:
 
             const chatLog = document.getElementById('chatLog');
             
-            // Append User Message
             const uDiv = document.createElement('div');
             uDiv.className = 'flex justify-end gap-2.5';
             uDiv.innerHTML = `<div class="bg-rose-600 text-white p-3 rounded-2xl rounded-tr-none max-w-[85%]">${q}</div>`;
@@ -431,7 +446,6 @@ def get_dashboard_html() -> str:
             input.value = '';
             chatLog.scrollTop = chatLog.scrollHeight;
 
-            // Typing Indicator
             const tDiv = document.createElement('div');
             tDiv.id = 'typingIndicator';
             tDiv.className = 'flex gap-2.5';
@@ -447,12 +461,11 @@ def get_dashboard_html() -> str:
             lucide.createIcons();
             chatLog.scrollTop = chatLog.scrollHeight;
 
-            // Fetch AI reply
             try {
-                const res = await fetch('/api/test-agent', {
+                const res = await fetch('/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: q })
+                    body: JSON.stringify({ action: 'test_agent', message: q })
                 });
                 const data = await res.json();
                 document.getElementById('typingIndicator')?.remove();
