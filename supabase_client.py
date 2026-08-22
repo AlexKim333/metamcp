@@ -16,8 +16,10 @@ def _get_headers() -> Dict[str, str]:
         "Prefer": "return=representation"
     }
 
+# =========================================================================
+# 1. 룰북 & 감사 로그 (Tenant Rules & Audit Logs)
+# =========================================================================
 def get_active_tenant_rules(tenant_id: str = "ladypolo_mexico") -> List[str]:
-    """Supabase에서 현재 활성화된 매장 룰북 목록 조회"""
     url = f"{SUPABASE_URL}/rest/v1/tenant_rules"
     headers = _get_headers()
     params = {
@@ -28,13 +30,9 @@ def get_active_tenant_rules(tenant_id: str = "ladypolo_mexico") -> List[str]:
     try:
         res = requests.get(url, headers=headers, params=params, timeout=5)
         if res.status_code == 200:
-            rows = res.json()
-            return [r.get("rule_content") for r in rows if r.get("rule_content")]
-        else:
-            print(f"⚠️ Supabase 룰북 조회 실패 ({res.status_code}): {res.text}")
-            return []
-    except Exception as e:
-        print(f"⚠️ Supabase 룰북 조회 예외: {e}")
+            return [r.get("rule_content") for r in res.json() if r.get("rule_content")]
+        return []
+    except Exception:
         return []
 
 def add_tenant_rule_to_supabase(
@@ -44,10 +42,7 @@ def add_tenant_rule_to_supabase(
     channel: str = "whatsapp",
     tenant_id: str = "ladypolo_mexico"
 ) -> bool:
-    """Supabase 룰북에 새 규칙 추가 및 변경 이력 감사 로그(Audit Log) 자동 기록"""
     headers = _get_headers()
-
-    # 1. tenant_rules 테이블에 삽입
     rule_url = f"{SUPABASE_URL}/rest/v1/tenant_rules"
     rule_payload = {
         "tenant_id": tenant_id,
@@ -55,32 +50,26 @@ def add_tenant_rule_to_supabase(
         "created_by": changed_by_name or changed_by_phone,
         "is_active": True
     }
-
     try:
         res1 = requests.post(rule_url, headers=headers, json=rule_payload, timeout=5)
-        if res1.status_code not in [200, 201]:
-            print(f"❌ 룰북 저장 실패: {res1.text}")
-            return False
-
-        # 2. rulebook_audit_logs 테이블에 감사 로그 기록
-        audit_url = f"{SUPABASE_URL}/rest/v1/rulebook_audit_logs"
-        audit_payload = {
-            "tenant_id": tenant_id,
-            "action": "ADD_RULE",
-            "rule_content": rule_content.strip(),
-            "changed_by_phone": changed_by_phone,
-            "changed_by_name": changed_by_name,
-            "channel": channel,
-            "notes": "메신저/대시보드를 통한 실시간 룰 등록"
-        }
-        requests.post(audit_url, headers=headers, json=audit_payload, timeout=5)
-        return True
-    except Exception as e:
-        print(f"❌ Supabase 룰북 추가 오류: {e}")
+        if res1.status_code in [200, 201]:
+            audit_url = f"{SUPABASE_URL}/rest/v1/rulebook_audit_logs"
+            audit_payload = {
+                "tenant_id": tenant_id,
+                "action": "ADD_RULE",
+                "rule_content": rule_content.strip(),
+                "changed_by_phone": changed_by_phone,
+                "changed_by_name": changed_by_name,
+                "channel": channel,
+                "notes": "메신저/대시보드를 통한 실시간 룰 등록"
+            }
+            requests.post(audit_url, headers=headers, json=audit_payload, timeout=5)
+            return True
+        return False
+    except Exception:
         return False
 
 def get_rulebook_audit_logs(limit: int = 20, tenant_id: str = "ladypolo_mexico") -> List[Dict[str, Any]]:
-    """대시보드 검토용: 최근 룰북 변경 이력(누가 언제 바꿨는지) 감사 로그 조회"""
     url = f"{SUPABASE_URL}/rest/v1/rulebook_audit_logs"
     headers = _get_headers()
     params = {
@@ -93,6 +82,104 @@ def get_rulebook_audit_logs(limit: int = 20, tenant_id: str = "ladypolo_mexico")
         if res.status_code == 200:
             return res.json()
         return []
-    except Exception as e:
-        print(f"❌ 감사 로그 조회 오류: {e}")
+    except Exception:
         return []
+
+# =========================================================================
+# 2. 직원 및 RBAC 목록 (Staff Members)
+# =========================================================================
+def get_supabase_staff_members(tenant_id: str = "ladypolo_mexico") -> List[Dict[str, Any]]:
+    url = f"{SUPABASE_URL}/rest/v1/staff_members"
+    headers = _get_headers()
+    params = {
+        "tenant_id": f"eq.{tenant_id}",
+        "is_active": "eq.true",
+        "order": "created_at.asc"
+    }
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5)
+        if res.status_code == 200:
+            return res.json()
+        return []
+    except Exception:
+        return []
+
+def add_supabase_staff_member(name: str, phone: str, branch: str, role: str = "지점 매니저", tenant_id: str = "ladypolo_mexico") -> bool:
+    url = f"{SUPABASE_URL}/rest/v1/staff_members"
+    headers = _get_headers()
+    payload = {
+        "tenant_id": tenant_id,
+        "name": name.strip(),
+        "phone": phone.strip(),
+        "branch": branch.strip(),
+        "role": role.strip(),
+        "is_active": True
+    }
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=5)
+        return res.status_code in [200, 201]
+    except Exception:
+        return False
+
+def remove_supabase_staff_member(phone: str, tenant_id: str = "ladypolo_mexico") -> bool:
+    url = f"{SUPABASE_URL}/rest/v1/staff_members"
+    headers = _get_headers()
+    params = {
+        "tenant_id": f"eq.{tenant_id}",
+        "phone": f"eq.{phone.strip()}"
+    }
+    try:
+        res = requests.delete(url, headers=headers, params=params, timeout=5)
+        return res.status_code in [200, 204]
+    except Exception:
+        return False
+
+# =========================================================================
+# 3. 오너 전화번호 목록 (Owner Phones)
+# =========================================================================
+def get_supabase_owner_phones(tenant_id: str = "ladypolo_mexico") -> List[str]:
+    url = f"{SUPABASE_URL}/rest/v1/owner_phones"
+    headers = _get_headers()
+    params = {"tenant_id": f"eq.{tenant_id}"}
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5)
+        if res.status_code == 200:
+            return [r.get("phone") for r in res.json() if r.get("phone")]
+        return []
+    except Exception:
+        return []
+
+# =========================================================================
+# 4. 매장 통합 설정 (Tenant Settings)
+# =========================================================================
+def get_supabase_tenant_settings(tenant_id: str = "ladypolo_mexico") -> Optional[Dict[str, Any]]:
+    url = f"{SUPABASE_URL}/rest/v1/tenant_settings"
+    headers = _get_headers()
+    params = {"tenant_id": f"eq.{tenant_id}"}
+    try:
+        res = requests.get(url, headers=headers, params=params, timeout=5)
+        if res.status_code == 200:
+            rows = res.json()
+            return rows[0] if rows else None
+        return None
+    except Exception:
+        return None
+
+def update_supabase_tenant_settings(new_settings: Dict[str, Any], tenant_id: str = "ladypolo_mexico") -> bool:
+    url = f"{SUPABASE_URL}/rest/v1/tenant_settings"
+    headers = _get_headers()
+    params = {"tenant_id": f"eq.{tenant_id}"}
+    payload = {
+        "max_auto_order_limit": new_settings.get("max_auto_order_limit", 50000),
+        "strict_business_guardrail": new_settings.get("strict_business_guardrail", True),
+        "show_quick_buttons": new_settings.get("show_quick_buttons", True),
+        "customer_channel": new_settings.get("customer_channel", "whatsapp"),
+        "staff_channel": new_settings.get("staff_channel", "telegram"),
+        "telegram_bot_token": new_settings.get("telegram_bot_token", ""),
+        "updated_at": "now()"
+    }
+    try:
+        res = requests.patch(url, headers=headers, params=params, json=payload, timeout=5)
+        return res.status_code in [200, 204]
+    except Exception:
+        return False
