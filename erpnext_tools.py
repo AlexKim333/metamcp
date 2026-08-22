@@ -471,13 +471,117 @@ def create_material_transfer_draft(
                     "items": summary_items
                 }
             }
+def create_material_request_submit(
+    to_warehouse: str,
+    items_list: List[TransferItemInput],
+    from_warehouse: Optional[str] = "[MAIN] ALARCON - K",
+    remarks: str = ""
+) -> Dict[str, object]:
+    """
+    [지점 전용: ERPNext 재고 요청/청구서(Material Request - Submitted) 정식 발행 도구]
+    지점에서 본사(알라르꼰)로 필요한 재고를 정식으로 요청/청구(Material Request)하여 승인 대기 상태(docstatus=1)로 제출합니다.
+    :param to_warehouse: 요청하는 지점 창고 (예: 'IKEA', '[SUB] IKEA - K')
+    :param items_list: 요청할 품목 및 박스 수량 리스트
+    :param from_warehouse: 출고 요청 대상 본사 창고 (기본값: [MAIN] ALARCON - K)
+    :param remarks: 요청 메모
+    """
+    headers = _get_headers()
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+
+    all_wh = get_warehouses()
+    s_wh = "[MAIN] ALARCON - K"
+    t_wh = to_warehouse
+
+    for w in all_wh:
+        w_name = w.get("name", "")
+        if from_warehouse and from_warehouse.lower() in w_name.lower():
+            s_wh = w_name
+        if to_warehouse and to_warehouse.lower() in w_name.lower():
+            t_wh = w_name
+
+    request_items = []
+    summary_items = []
+
+    for it in items_list:
+        if isinstance(it, dict):
+            code = it.get("item_code", "").strip()
+            boxes = float(it.get("boxes") or 1.0)
+            eaches = float(it.get("qty") or 0.0)
+        else:
+            code = it.item_code.strip()
+            boxes = float(it.boxes or 1.0)
+            eaches = float(it.qty or 0.0)
+
+        st = get_item_stock(code)
+        pack_qty = int(st.get("pack_qty") or 1)
+        item_name = str(st.get("item_name") or code)
+
+        if boxes > 0:
+            final_qty = boxes * pack_qty
+        else:
+            final_qty = eaches if eaches > 0 else pack_qty
+            boxes = int(final_qty // pack_qty)
+
+        request_items.append({
+            "item_code": code,
+            "item_name": item_name,
+            "qty": final_qty,
+            "schedule_date": today_str,
+            "warehouse": t_wh,
+            "from_warehouse": s_wh,
+            "uom": "Nos"
+        })
+
+        summary_items.append({
+            "item_code": code,
+            "boxes": boxes,
+            "pack_qty": pack_qty,
+            "total_qty": int(final_qty)
+        })
+
+    mr_payload = {
+        "material_request_type": "Material Transfer",
+        "company": "kecon",
+        "transaction_date": today_str,
+        "schedule_date": today_str,
+        "set_warehouse": t_wh,
+        "set_from_warehouse": s_wh,
+        "items": request_items,
+        "remarks": remarks or f"WhatsApp/Telegram 삼돌이 AI 지점 재고 청구 (요청 지점: {t_wh} ➔ 본사: {s_wh})",
+        "docstatus": 1
+    }
+
+    try:
+        url = f"{ERPNEXT_URL}/api/resource/Material Request"
+        res = requests.post(url, headers=headers, json=mr_payload, timeout=15)
+        if res.status_code in [200, 201]:
+            created_data = res.json().get("data", {})
+            mr_name = created_data.get("name")
+            return {
+                "success": True,
+                "request_name": mr_name,
+                "status": "Submitted (정식 제출 완료)",
+                "to_warehouse": t_wh,
+                "from_warehouse": s_wh,
+                "items": summary_items
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"ERPNext 오류 ({res.status_code}): {res.text}",
+                "simulated_summary": {
+                    "to_warehouse": t_wh,
+                    "from_warehouse": s_wh,
+                    "items": summary_items
+                }
+            }
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
             "simulated_summary": {
-                "from_warehouse": s_wh,
                 "to_warehouse": t_wh,
+                "from_warehouse": s_wh,
                 "items": summary_items
             }
         }
