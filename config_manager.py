@@ -6,10 +6,23 @@ SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "admin_password": os.getenv("ADMIN_PASSWORD", "ladypolo2026!"),
-    "max_auto_order_limit": 50000,  # 5만 페소 이상 시 담당자 1:1 상담방으로 토스
-    "strict_business_guardrail": True,  # 비업무 잡담 엄격 거절
-    "show_quick_buttons": True,  # 3대 퀵 버튼 활성화
-    "default_language": "es",  # 멕시코 기본 언어
+    "max_auto_order_limit": 50000,
+    "strict_business_guardrail": True,
+    "show_quick_buttons": True,
+    "default_language": "es",
+    
+    # 📡 채널 매트릭스 설정 (외부 고객 vs 사내 직원)
+    "customer_channel": "whatsapp",  # "whatsapp", "telegram", "both"
+    "staff_channel": "telegram",      # "telegram", "whatsapp", "both"
+    "telegram_bot_token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
+    "telegram_webhook_secret": "ladypolo_telegram_secret_2026",
+    
+    # 📜 메신저 대화로 학습된 테넌트 커스텀 룰북
+    "tenant_custom_rules": [
+        "1회 주문 금액이 임계 금액(50,000 MXN)을 초과하는 대량 주문은 담당 지점장 1:1 상담방(wa.me 딥링크)으로 자동 안내한다.",
+        "직원이 품목을 조회할 때는 본사 메인 창고([MAIN] ALARCON)와 해당 직원의 소속 지점 창고 재고를 최우선으로 안내한다."
+    ],
+    
     "owner_phones": [
         "5215563482005",
         "525563482005"
@@ -42,7 +55,6 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     ]
 }
 
-# 런타임 메모리 캐시
 _runtime_settings: Dict[str, Any] = {}
 
 def get_settings() -> Dict[str, Any]:
@@ -54,7 +66,6 @@ def get_settings() -> Dict[str, Any]:
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-                # 누락된 키 기본값 병합
                 merged = {**DEFAULT_SETTINGS, **saved}
                 _runtime_settings = merged
                 return _runtime_settings
@@ -70,14 +81,24 @@ def save_settings(new_settings: Dict[str, Any]) -> bool:
         merged = {**get_settings(), **new_settings}
         _runtime_settings = merged
         
-        # 파일 쓰기 (로컬 및 영속성 지원 환경)
         try:
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump(merged, f, ensure_ascii=False, indent=2)
         except Exception:
-            pass  # Vercel Read-Only 환경에서는 메모리 캐시로 정상 지속
+            pass
             
         return True
     except Exception as e:
         print(f"❌ 설정 저장 오류: {e}")
         return False
+
+def add_tenant_custom_rule(rule_text: str) -> bool:
+    """메신저 대화를 통해 실시간으로 룰북에 새 규칙 추가"""
+    settings = get_settings()
+    rules = settings.get("tenant_custom_rules", [])
+    if rule_text not in rules:
+        rules.append(rule_text)
+        settings["tenant_custom_rules"] = rules
+        save_settings(settings)
+        return True
+    return False

@@ -13,6 +13,8 @@ from text_preprocessor import (
     detect_and_update_user_lang
 )
 from roles import get_user_role, ROLE_OWNER, ROLE_STAFF, ROLE_CUSTOMER
+from config_manager import get_settings, add_tenant_custom_rule
+from session_manager import record_queried_item, get_recent_queried_items, clear_user_session_items
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
@@ -28,41 +30,78 @@ MODEL_CASCADE = [
     "gemini-3.1-flash-lite"
 ]
 
-def build_system_instruction(user_role_info: Dict[str, Any], user_lang: str = "ko") -> str:
+def build_system_instruction(user_role_info: Dict[str, Any], user_lang: str = "ko", recent_items: List[str] = None) -> str:
     is_spanish = (user_lang == "es")
+    settings = get_settings()
+    custom_rules = settings.get("tenant_custom_rules", [])
+    custom_rules_str = "\n".join([f"- {r}" for r in custom_rules]) if custom_rules else "없음"
+    recent_items_str = ", ".join(recent_items) if recent_items else "없음"
+    staff_branch = user_role_info.get("branch", "IKEA")
 
     if is_spanish:
-        return """
+        return f"""
 Eres el **Asistente AI de ladypolo** (WMS de Ropa/Moda en México).
 Debes responder en **Español de México**.
+
+【HISTORIAL DE ARTÍCULOS CONSULTADOS EN ESTA SESIÓN】
+Artículos recientes: [{recent_items_str}]
+Sucursal asignada del usuario: [{staff_branch}]
 
 【REGLAS DE ORO OBLIGATORIAS】
 1. **CONSULTAS DE STOCK:**
    - Responde ÚNICAMENTE sobre el modelo y color solicitado.
+   - Si el usuario es empleado ({staff_branch}), muestra prioritariamente el stock de [MAIN] ALARCON y de su sucursal ({staff_branch}).
    - Incluye siempre la cantidad exacta en **cajas / bultos** y **piezas totales**.
-   - PROHIBIDO listar otros colores o productos no solicitados.
 
-2. **CREACIÓN DE PEDIDOS (Sales Order):**
-   - Si se envía un pedido confirmado (ej: "Carlos: P-160 ROJO 2 cajas a $300, 021G AZUL 3 cajas a $450"):
-     ➔ El precio indicado ($300, $450) es el **precio por caja (rate_per_box)**.
-     ➔ Utiliza `create_sales_order` para registrar el pedido en ERPNext.
-     ➔ Genera un recibo formal con código, cajas, piezas, precio por caja y total.
+2. **TRANSFERENCIA DE STOCK POR LOTE (create_material_transfer_draft):**
+   - Si el usuario dice "Mueve 1 caja de estos a mi sucursal" o "이것들 1박스씩 이동":
+     ➔ Utiliza los artículos del historial [{recent_items_str}].
+     ➔ Llama a `create_material_transfer_draft` con origen [MAIN] ALARCON y destino {staff_branch}.
+
+3. **CREACIÓN DE PEDIDOS (Sales Order):**
+   - Si se envía un pedido confirmado, utiliza `create_sales_order`.
+
+【REGLAS PERSONALIZADAS DE LA TIENDA (Dynamic Rulebook)】
+{custom_rules_str}
 """
     else:
-        return """
-당신은 **ladypolo(멕시코 의류/패션 물류 시스템)**의 WhatsApp AI 비서입니다.
-한국어로 명확하게 답변하세요.
+        return f"""
+당신은 **ladypolo(멕시코 의류/패션 물류 시스템)**의 WhatsApp & Telegram AI 비서입니다.
+한국어로 명확하고 간결하게 답변하세요.
+
+【현재 세션에서 최근 조회한 품목 목록】
+최근 조회 품목: [{recent_items_str}]
+접속자 소속 지점: [{staff_branch}]
 
 【필수 대원칙 (행동 수칙)】
-1. **재고 수량(박스/개수) 정보 필수 포함:**
-   - 재고 문의 시 요청한 품목/컬러에 대해서만 **몇 박스(cajas/bultos), 총 몇 개(piezas)**가 있는지 명확한 수량을 안내하세요.
-   - 요청하지 않은 다른 색상이나 관련 상품을 줄줄이 나열하지 마세요.
+1. **재고 수량(박스/개수) 명확한 안내:**
+   - 재고 문의 시 요청한 품목에 대해 **몇 박스(cajas), 총 몇 개(piezas)**가 있는지 명확히 안내하세요.
+   - 직원이 조회할 때는 **[MAIN] ALARCON(본사)**과 **소속 지점({staff_branch})** 재고를 최우선으로 간결하게 안내하세요.
 
-2. **주문서 / 견적서 자동 생성 (create_sales_order):**
-   - 관리자 또는 지점장이 포워딩한 주문/견적 텍스트를 받으면:
-     ➔ 언급된 단가(예: "2박스 단가 300")는 **박스당 단가(rate_per_box)**로 `create_sales_order`를 호출하세요.
-     ➔ ERPNext에 등록된 `order_name`(예: SO-2026-xxxxx)과 함께 [고객명, 출고 지점, 품목, 박스수량×입수량=총수량, 박스당 단가, 소계, 총 주문 금액]이 정리된 깔끔한 정식 주문서 영수증을 출력하세요.
+2. **조회 목록 일괄 재고이동 전표 생성 (create_material_transfer_draft):**
+   - 직원이 "이것들 1박스씩 이동 전표 넣어줘", "방금 조회한 것들 1박스씩 이동" 등의 지시를 내리면:
+     ➔ 세션 기록에 있는 품목들([{recent_items_str}])을 가져와 `create_material_transfer_draft` 도구를 실행하세요.
+     ➔ 출발지: [MAIN] ALARCON, 도착지: {staff_branch} (박스당 1박스씩)
+     ➔ 생성 완료 후 전표 번호와 품목별 박스 수량이 정리된 깔끔한 영수증을 출력하세요.
+
+3. **주문서 자동 생성 (create_sales_order):**
+   - 관리자가 포워딩한 주문 내용은 `create_sales_order`로 등록하세요.
+
+4. **대화형 매장 규칙 학습 (save_tenant_rule):**
+   - 오너가 "앞으로 우리 매장은 ~해줘", "규칙: ~" 등의 새로운 운영 지침을 말하면 `save_tenant_rule`을 호출하여 룰북에 저장하세요.
+
+【실시간 학습된 매장 커스텀 룰북】
+{custom_rules_str}
 """
+
+def save_tenant_rule(rule_text: str) -> Dict[str, object]:
+    """[오너 전용] 메신저 대화로 매장 커스텀 규칙/가드레일을 실시간 학습하여 저장하는 도구"""
+    ok = add_tenant_custom_rule(rule_text)
+    return {
+        "success": ok,
+        "saved_rule": rule_text,
+        "message": "매장 룰북에 새로운 규칙이 성공적으로 저장 및 실시간 적용되었습니다."
+    }
 
 def create_gemini_client():
     if not GEMINI_API_KEY:
@@ -70,31 +109,21 @@ def create_gemini_client():
     return genai.Client(api_key=GEMINI_API_KEY)
 
 def emergency_local_fallback(query: str, sender_name: str, user_lang: str = "ko") -> str:
-    print(f"🚨 [Emergency Fallback Triggered] Query: '{query}' (lang={user_lang})")
     items = erpnext_tools.search_items(query, limit=2)
     is_spanish = (user_lang == "es")
 
     if items:
-        if is_spanish:
-            lines = [f"🔍 **Resultado para '{query}':**\n"]
-            for it in items:
-                name = it.get('name')
-                stock = erpnext_tools.get_item_stock(name)
-                qty = int(stock.get('total_qty', 0))
-                boxes = stock.get('total_boxes', 0)
-                lines.append(f"📦 **[{name}]**")
-                lines.append(f"• Existencia: **{boxes} bultos/cajas** ({qty:,} pzs)")
-            return "\n".join(lines)
-        else:
-            lines = [f"🔍 **'{query}' 재고 결과:**\n"]
-            for it in items:
-                name = it.get('name')
-                stock = erpnext_tools.get_item_stock(name)
-                qty = int(stock.get('total_qty', 0))
-                boxes = stock.get('total_boxes', 0)
-                lines.append(f"📦 **[{name}]**")
-                lines.append(f"• 총 재고: **{boxes}박스** ({qty:,}개)")
-            return "\n".join(lines)
+        lines = [f"🔍 **'{query}' 재고 결과:**\n"] if not is_spanish else [f"🔍 **Resultado para '{query}':**\n"]
+        for it in items:
+            name = it.get('name')
+            stock = erpnext_tools.get_item_stock(name)
+            qty = int(stock.get('total_qty', 0))
+            boxes = stock.get('total_boxes', 0)
+            if is_spanish:
+                lines.append(f"📦 **[{name}]**\n• Existencia: **{boxes} bultos/cajas** ({qty:,} pzs)")
+            else:
+                lines.append(f"📦 **[{name}]**\n• 총 재고: **{boxes}박스** ({qty:,}개)")
+        return "\n".join(lines)
 
     return (
         f"❌ No se encontraron existencias para '{query}'."
@@ -114,6 +143,15 @@ def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: s
     user_role_info = get_user_role(sender_phone)
     normalized_text = spoken_numerals_to_digits(raw_text)
 
+    # 1. 품목 코드가 감지되면 세션 히스토리에 자동 기록
+    searched = erpnext_tools.search_items(normalized_text, limit=1)
+    if searched:
+        item_code = searched[0].get("name")
+        if item_code:
+            record_queried_item(sender_phone, item_code)
+
+    recent_items = get_recent_queried_items(sender_phone)
+
     client = create_gemini_client()
     tools = [
         erpnext_tools.search_items,
@@ -121,10 +159,12 @@ def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: s
         erpnext_tools.get_warehouses,
         erpnext_tools.get_item_price,
         erpnext_tools.get_recent_stock_transfers,
-        erpnext_tools.create_sales_order
+        erpnext_tools.create_sales_order,
+        erpnext_tools.create_material_transfer_draft,
+        save_tenant_rule
     ]
     config = types.GenerateContentConfig(
-        system_instruction=build_system_instruction(user_role_info, user_lang=user_lang),
+        system_instruction=build_system_instruction(user_role_info, user_lang=user_lang, recent_items=recent_items),
         temperature=0.1,
         tools=tools
     )

@@ -374,3 +374,124 @@ def create_sales_order(
                 "items": parsed_summary
             }
         }
+
+class TransferItemInput(BaseModel):
+    item_code: str = Field(description="품목 코드 (예: 'P-160-ROJO-400')")
+    boxes: float = Field(default=1.0, description="이동할 박스 수량 (기본값: 1박스)")
+    qty: float = Field(default=0.0, description="낱개 수량 (박스 수량이 없을 때)")
+
+def create_material_transfer_draft(
+    to_warehouse: str,
+    items_list: List[TransferItemInput],
+    from_warehouse: Optional[str] = "[MAIN] ALARCON - K",
+    remarks: str = ""
+) -> Dict[str, object]:
+    """
+    [ERPNext 지점 간 재고 이동 임시 전표(Stock Entry - Material Transfer Draft) 일괄 생성 도구]
+    :param to_warehouse: 도착 지점 창고 (예: 'IKEA', '[SUB] IKEA - K')
+    :param items_list: 이동할 품목 및 박스 수량 리스트
+    :param from_warehouse: 출발 창고 (기본값: [MAIN] ALARCON - K)
+    :param remarks: 비고 메모
+    """
+    headers = _get_headers()
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    
+    # 1. 창고 이름 정확 매핑
+    all_wh = get_warehouses()
+    s_wh = "[MAIN] ALARCON - K"
+    t_wh = to_warehouse
+    
+    for w in all_wh:
+        w_name = w.get("name", "")
+        if from_warehouse and from_warehouse.lower() in w_name.lower():
+            s_wh = w_name
+        if to_warehouse and to_warehouse.lower() in w_name.lower():
+            t_wh = w_name
+
+    # 2. 품목 수량 계산 및 페이로드 구성
+    transfer_items = []
+    summary_items = []
+
+    for it in items_list:
+        if isinstance(it, dict):
+            code = it.get("item_code", "").strip()
+            boxes = float(it.get("boxes") or 1.0)
+            eaches = float(it.get("qty") or 0.0)
+        else:
+            code = it.item_code.strip()
+            boxes = float(it.boxes or 1.0)
+            eaches = float(it.qty or 0.0)
+
+        st = get_item_stock(code)
+        pack_qty = int(st.get("pack_qty") or 1)
+        item_name = str(st.get("item_name") or code)
+
+        if boxes > 0:
+            final_qty = boxes * pack_qty
+        else:
+            final_qty = eaches if eaches > 0 else pack_qty
+            boxes = int(final_qty // pack_qty)
+
+        transfer_items.append({
+            "item_code": code,
+            "item_name": item_name,
+            "qty": final_qty,
+            "s_warehouse": s_wh,
+            "t_warehouse": t_wh,
+            "conversion_factor": 1.0
+        })
+
+        summary_items.append({
+            "item_code": code,
+            "boxes": boxes,
+            "pack_qty": pack_qty,
+            "total_qty": int(final_qty)
+        })
+
+    # 3. Stock Entry 생성 (Draft: docstatus = 0)
+    entry_payload = {
+        "stock_entry_type": "Material Transfer",
+        "company": "kecon",
+        "posting_date": today_str,
+        "from_warehouse": s_wh,
+        "to_warehouse": t_wh,
+        "items": transfer_items,
+        "remarks": remarks or f"WhatsApp/Telegram 삼돌이 AI 자동 생성 (출발: {s_wh} ➔ 도착: {t_wh})"
+    }
+
+    try:
+        url = f"{ERPNEXT_URL}/api/resource/Stock Entry"
+        res = requests.post(url, headers=headers, json=entry_payload, timeout=15)
+        
+        if res.status_code in [200, 201]:
+            created_data = res.json().get("data", {})
+            entry_name = created_data.get("name")
+            return {
+                "success": True,
+                "entry_name": entry_name,
+                "from_warehouse": s_wh,
+                "to_warehouse": t_wh,
+                "status": "Draft (임시저장)",
+                "items": summary_items
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"ERPNext 오류 ({res.status_code}): {res.text}",
+                "simulated_summary": {
+                    "from_warehouse": s_wh,
+                    "to_warehouse": t_wh,
+                    "items": summary_items
+                }
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "simulated_summary": {
+                "from_warehouse": s_wh,
+                "to_warehouse": t_wh,
+                "items": summary_items
+            }
+        }
+

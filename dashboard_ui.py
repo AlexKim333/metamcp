@@ -81,7 +81,7 @@ def get_dashboard_html() -> str:
                         <h2 class="text-sm font-bold text-white flex items-center gap-2">
                             ladypolo AI 비서 <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-medium">LIVE</span>
                         </h2>
-                        <p class="text-xs text-slate-400">Vercel Serverless Production</p>
+                        <p class="text-xs text-slate-400">Vercel Serverless Multi-Channel Production</p>
                     </div>
                 </div>
 
@@ -97,17 +97,30 @@ def get_dashboard_html() -> str:
         <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8">
             
             <!-- HEALTH STATUS CARDS -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-4">
                     <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                        <i data-lucide="message-square" class="w-6 h-6"></i>
+                        <i data-lucide="message-circle" class="w-6 h-6"></i>
                     </div>
                     <div>
-                        <div class="text-xs text-slate-400">Meta WhatsApp Cloud API</div>
+                        <div class="text-xs text-slate-400">외부 고객 창구</div>
                         <div class="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> 정상 작동 중
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> WhatsApp Live
                         </div>
                         <div class="text-[11px] text-slate-500 mt-0.5">+52 1 661 130 9490</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                        <i data-lucide="send" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">사내 직원 전용 창구</div>
+                        <div class="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
+                            <span class="w-2 h-2 rounded-full bg-sky-500"></span> Telegram (0원)
+                        </div>
+                        <div class="text-[11px] text-slate-500 mt-0.5">토큰 설정 대기 중</div>
                     </div>
                 </div>
 
@@ -116,9 +129,9 @@ def get_dashboard_html() -> str:
                         <i data-lucide="database" class="w-6 h-6"></i>
                     </div>
                     <div>
-                        <div class="text-xs text-slate-400">ERPNext 백엔드 인스턴스</div>
+                        <div class="text-xs text-slate-400">ERPNext 백엔드</div>
                         <div class="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-                            <span class="w-2 h-2 rounded-full bg-blue-500"></span> 실시간 연동 (200 OK)
+                            <span class="w-2 h-2 rounded-full bg-blue-500"></span> 실시간 원장 연동
                         </div>
                         <div class="text-[11px] text-slate-500 mt-0.5">ktkpos.frappe.cloud</div>
                     </div>
@@ -129,9 +142,9 @@ def get_dashboard_html() -> str:
                         <i data-lucide="sparkles" class="w-6 h-6"></i>
                     </div>
                     <div>
-                        <div class="text-xs text-slate-400">Google Gemini AI 엔진</div>
+                        <div class="text-xs text-slate-400">Gemini AI 엔진</div>
                         <div class="text-sm font-bold text-white flex items-center gap-1.5 mt-0.5">
-                            <span class="w-2 h-2 rounded-full bg-purple-500"></span> gemini-3.5-flash
+                            <span class="w-2 h-2 rounded-full bg-purple-500"></span> 3.5-Flash Cascade
                         </div>
                         <div class="text-[11px] text-slate-500 mt-0.5">응답 지연시간: ~1.5초</div>
                     </div>
@@ -147,16 +160,72 @@ def get_dashboard_html() -> str:
                         <div class="flex items-center justify-between border-b border-slate-800 pb-4">
                             <div>
                                 <h3 class="text-base font-bold text-white flex items-center gap-2">
-                                    <i data-lucide="sliders" class="w-5 h-5 text-rose-500"></i> 비즈니스 정책 & 가드레일 설정
+                                    <i data-lucide="sliders" class="w-5 h-5 text-rose-500"></i> 비즈니스 정책 & 채널 라우팅 설정
                                 </h3>
-                                <p class="text-xs text-slate-400 mt-0.5">주문 한도, 잡담 차단, 퀵 버튼 설정을 실시간 제어합니다.</p>
+                                <p class="text-xs text-slate-400 mt-0.5">투트랙 메신저 라우팅, 주문 한도, 커스텀 룰북을 실시간 제어합니다.</p>
                             </div>
                             <button onclick="saveAllSettings()" class="bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-lg shadow-rose-600/30 flex items-center gap-1.5 transition-all">
                                 <i data-lucide="save" class="w-3.5 h-3.5"></i> 설정 저장
                             </button>
                         </div>
 
-                        <!-- 1. MAX ORDER LIMIT -->
+                        <!-- 📡 1. CHANNEL MATRIX ROUTING -->
+                        <div class="p-4 bg-slate-800/40 border border-slate-700/60 rounded-2xl space-y-4">
+                            <h4 class="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <i data-lucide="radio" class="w-4 h-4"></i> 📡 응대 채널 매트릭스 (투트랙 분기)
+                            </h4>
+                            
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                                <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-700/80 space-y-2">
+                                    <div class="font-semibold text-white flex items-center justify-between">
+                                        <span>외부 고객 응대 채널</span>
+                                        <span class="text-[10px] text-slate-400">손님/바이어</span>
+                                    </div>
+                                    <div class="flex items-center gap-4 pt-1">
+                                        <label class="flex items-center gap-1.5 cursor-pointer">
+                                            <input type="radio" name="customerChannel" value="whatsapp" id="custWhatsapp" class="accent-rose-500">
+                                            <span class="text-slate-300">WhatsApp (기본)</span>
+                                        </label>
+                                        <label class="flex items-center gap-1.5 cursor-pointer">
+                                            <input type="radio" name="customerChannel" value="telegram" id="custTelegram" class="accent-rose-500">
+                                            <span class="text-slate-300">Telegram</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-700/80 space-y-2">
+                                    <div class="font-semibold text-white flex items-center justify-between">
+                                        <span>사내 직원 전용 채널</span>
+                                        <span class="text-[10px] text-emerald-400">100% 무료</span>
+                                    </div>
+                                    <div class="flex items-center gap-4 pt-1">
+                                        <label class="flex items-center gap-1.5 cursor-pointer">
+                                            <input type="radio" name="staffChannel" value="telegram" id="staffTelegram" class="accent-rose-500">
+                                            <span class="text-slate-300">Telegram (권장)</span>
+                                        </label>
+                                        <label class="flex items-center gap-1.5 cursor-pointer">
+                                            <input type="radio" name="staffChannel" value="whatsapp" id="staffWhatsapp" class="accent-rose-500">
+                                            <span class="text-slate-300">WhatsApp</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 텔레그램 봇 토큰 입력 필드 -->
+                            <div class="pt-2">
+                                <label class="text-[11px] font-semibold text-slate-300 block mb-1">텔레그램 봇 API 토큰 (BotFather 발급키)</label>
+                                <div class="flex gap-2">
+                                    <input type="text" id="telegramBotToken" placeholder="예: 7891234567:AAHxxxxxxxx_xxxxxxxxxxxx"
+                                        class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500">
+                                    <button type="button" onclick="registerTelegramWebhook()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all">
+                                        웹훅 등록
+                                    </button>
+                                </div>
+                                <p class="text-[10px] text-slate-500 mt-1">텔레그램 번호 승인 후 토큰을 입력하고 저장을 누르면 즉시 사내 봇이 가동됩니다.</p>
+                            </div>
+                        </div>
+
+                        <!-- 2. MAX ORDER LIMIT -->
                         <div class="space-y-2">
                             <div class="flex justify-between items-center">
                                 <label class="text-xs font-semibold text-slate-300">1회 자동 주문 한도 (임계 금액)</label>
@@ -170,7 +239,7 @@ def get_dashboard_html() -> str:
                             </div>
                         </div>
 
-                        <!-- 2. TOGGLES -->
+                        <!-- 3. TOGGLES -->
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                             <div class="bg-slate-800/50 border border-slate-700/60 rounded-2xl p-4 flex items-center justify-between">
                                 <div>
@@ -189,7 +258,25 @@ def get_dashboard_html() -> str:
                             </div>
                         </div>
 
-                        <!-- 3. STAFF / BRANCH MANAGEMENT -->
+                        <!-- 📜 4. DYNAMIC CUSTOM RULEBOOK -->
+                        <div class="pt-4 border-t border-slate-800 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                                        <i data-lucide="book-open" class="w-4 h-4 text-purple-400"></i> 실시간 학습된 매장 커스텀 룰북
+                                    </h4>
+                                    <p class="text-[11px] text-slate-500 mt-0.5">오너가 메신저로 말한 규칙들이 AI 두뇌에 실시간 주입되어 작동합니다.</p>
+                                </div>
+                                <button onclick="addNewRulePrompt()" class="text-xs text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1 border border-purple-500/20 bg-purple-500/10 px-3 py-1.5 rounded-lg">
+                                    <i data-lucide="plus" class="w-3.5 h-3.5"></i> 규칙 추가
+                                </button>
+                            </div>
+
+                            <div id="rulebookContainer" class="space-y-2 text-xs">
+                            </div>
+                        </div>
+
+                        <!-- 5. STAFF / BRANCH MANAGEMENT -->
                         <div class="pt-4 border-t border-slate-800 space-y-4">
                             <div class="flex items-center justify-between">
                                 <div>
@@ -218,7 +305,7 @@ def get_dashboard_html() -> str:
                             </div>
                         </div>
 
-                        <!-- 4. OWNER PHONES -->
+                        <!-- 6. OWNER PHONES -->
                         <div class="pt-4 border-t border-slate-800 space-y-2">
                             <label class="text-xs font-bold text-slate-200 uppercase tracking-wider">👑 오너/최고관리자 전화번호 목록</label>
                             <p class="text-[11px] text-slate-500">전 창고 상세 재고 및 단가/원가 등 전체 권한이 부여되는 번호입니다 (쉼표로 구분).</p>
@@ -230,13 +317,13 @@ def get_dashboard_html() -> str:
 
                 <!-- RIGHT 1 COLUMN: LIVE AI TEST SANDBOX -->
                 <div class="lg:col-span-1 space-y-6">
-                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col h-[680px]">
+                    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col h-[780px]">
                         <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
                             <div>
                                 <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
                                     <i data-lucide="terminal" class="w-4 h-4 text-rose-500"></i> 실시간 대화 샌드박스
                                 </h3>
-                                <p class="text-[11px] text-slate-400">웹에서 바로 삼돌이에게 질문 테스트</p>
+                                <p class="text-[11px] text-slate-400">웹에서 바로 삼돌이에게 질문/이동/룰 학습 테스트</p>
                             </div>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400">Test Bot</span>
                         </div>
@@ -248,7 +335,10 @@ def get_dashboard_html() -> str:
                                     <i data-lucide="bot" class="w-4 h-4"></i>
                                 </div>
                                 <div class="bg-slate-800 text-slate-200 p-3 rounded-2xl rounded-tl-none max-w-[85%]">
-                                    안녕하세요! **ladypolo 비서**입니다. 테스트 질문을 입력해 보세요. (예: `P160 빨강 재고`, `hola`, `021G 재고`)
+                                    안녕하세요! **ladypolo 비서**입니다.<br>
+                                    • `P160 검정 재고` 조회 후<br>
+                                    • `이것들 1박스씩 이동 전표 넣어줘`<br>
+                                    를 테스트해 보세요!
                                 </div>
                             </div>
                         </div>
@@ -287,7 +377,7 @@ def get_dashboard_html() -> str:
             }
         });
 
-        // 1. LOGIN VIA ACTION DISPATCH
+        // 1. LOGIN
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const pwd = document.getElementById('adminPassword').value;
@@ -337,11 +427,57 @@ def get_dashboard_html() -> str:
                 document.getElementById('strictGuardrail').checked = currentSettings.strict_business_guardrail !== false;
                 document.getElementById('showQuickButtons').checked = currentSettings.show_quick_buttons !== false;
                 document.getElementById('ownerPhones').value = (currentSettings.owner_phones || []).join(', ');
+                document.getElementById('telegramBotToken').value = currentSettings.telegram_bot_token || '';
 
+                if (currentSettings.customer_channel === 'telegram') {
+                    document.getElementById('custTelegram').checked = true;
+                } else {
+                    document.getElementById('custWhatsapp').checked = true;
+                }
+
+                if (currentSettings.staff_channel === 'whatsapp') {
+                    document.getElementById('staffWhatsapp').checked = true;
+                } else {
+                    document.getElementById('staffTelegram').checked = true;
+                }
+
+                renderRules(currentSettings.tenant_custom_rules || []);
                 renderStaffTable(currentSettings.staff_members || []);
             } catch (err) {
                 console.error("설정 로드 실패:", err);
             }
+        }
+
+        function renderRules(rules) {
+            const container = document.getElementById('rulebookContainer');
+            container.innerHTML = '';
+            rules.forEach((r, idx) => {
+                const div = document.createElement('div');
+                div.className = 'flex items-start justify-between bg-slate-800/60 border border-slate-700/60 p-3 rounded-xl';
+                div.innerHTML = `
+                    <div class="text-slate-300 pr-2 leading-relaxed">• ${r}</div>
+                    <button onclick="removeRule(${idx})" class="text-rose-400 hover:text-rose-300 shrink-0 p-1">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+            lucide.createIcons();
+        }
+
+        function addNewRulePrompt() {
+            const rule = prompt("추가할 매장 운영 규칙을 입력하세요 (예: 50,000페소 이상 주문은 Monse 담당자에게 토스):");
+            if (!rule) return;
+            if (!currentSettings.tenant_custom_rules) currentSettings.tenant_custom_rules = [];
+            currentSettings.tenant_custom_rules.push(rule);
+            renderRules(currentSettings.tenant_custom_rules);
+            showToast("새 규칙이 추가되었습니다 (설정 저장을 눌러주세요)");
+        }
+
+        function removeRule(idx) {
+            currentSettings.tenant_custom_rules.splice(idx, 1);
+            renderRules(currentSettings.tenant_custom_rules);
+            showToast("규칙이 삭제되었습니다 (설정 저장을 눌러주세요)");
         }
 
         function renderStaffTable(staffList) {
@@ -389,12 +525,39 @@ def get_dashboard_html() -> str:
             }
         }
 
+        async function registerTelegramWebhook() {
+            const token = document.getElementById('telegramBotToken').value.trim();
+            if (!token) {
+                alert("텔레그램 봇 토큰을 먼저 입력해 주세요.");
+                return;
+            }
+            try {
+                const res = await fetch('/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'register_telegram_webhook', token: token })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("✅ 텔레그램 웹훅 등록 성공!");
+                } else {
+                    alert("웹훅 등록 결과: " + JSON.stringify(data));
+                }
+            } catch (e) {
+                alert("등록 오류: " + e);
+            }
+        }
+
         async function saveAllSettings() {
             const newLimit = parseInt(document.getElementById('maxOrderLimit').value) || 50000;
             const strictG = document.getElementById('strictGuardrail').checked;
             const showQB = document.getElementById('showQuickButtons').checked;
+            const tgToken = document.getElementById('telegramBotToken').value.trim();
             const ownerRaw = document.getElementById('ownerPhones').value;
             const owners = ownerRaw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+
+            const custChannel = document.querySelector('input[name="customerChannel"]:checked')?.value || 'whatsapp';
+            const staffChannel = document.querySelector('input[name="staffChannel"]:checked')?.value || 'telegram';
 
             const payload = {
                 action: 'save_settings',
@@ -402,8 +565,12 @@ def get_dashboard_html() -> str:
                     max_auto_order_limit: newLimit,
                     strict_business_guardrail: strictG,
                     show_quick_buttons: showQB,
+                    customer_channel: custChannel,
+                    staff_channel: staffChannel,
+                    telegram_bot_token: tgToken,
                     owner_phones: owners,
-                    staff_members: currentSettings.staff_members || []
+                    staff_members: currentSettings.staff_members || [],
+                    tenant_custom_rules: currentSettings.tenant_custom_rules || []
                 }
             };
 
