@@ -265,7 +265,7 @@ def get_dashboard_html() -> str:
                                     <h4 class="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                                         <i data-lucide="book-open" class="w-4 h-4 text-purple-400"></i> 실시간 학습된 매장 커스텀 룰북
                                     </h4>
-                                    <p class="text-[11px] text-slate-500 mt-0.5">오너가 메신저로 말한 규칙들이 AI 두뇌에 실시간 주입되어 작동합니다.</p>
+                                    <p class="text-[11px] text-slate-500 mt-0.5">오너가 메신저로 말한 규칙들이 Supabase DB에 영구 보관되며 실시간 작동합니다.</p>
                                 </div>
                                 <button onclick="addNewRulePrompt()" class="text-xs text-purple-400 hover:text-purple-300 font-semibold flex items-center gap-1 border border-purple-500/20 bg-purple-500/10 px-3 py-1.5 rounded-lg">
                                     <i data-lucide="plus" class="w-3.5 h-3.5"></i> 규칙 추가
@@ -273,6 +273,25 @@ def get_dashboard_html() -> str:
                             </div>
 
                             <div id="rulebookContainer" class="space-y-2 text-xs">
+                            </div>
+                        </div>
+
+                        <!-- 🔍 4-1. RULEBOOK AUDIT LOGS (누가 언제 바꿨는지 추적) -->
+                        <div class="pt-4 border-t border-slate-800 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <i data-lucide="history" class="w-4 h-4"></i> 룰북 변경 이력 & 감사 로그 (Audit Trail)
+                                    </h4>
+                                    <p class="text-[11px] text-slate-500 mt-0.5">메신저 및 웹에서 변경된 모든 룰의 변경자, 시간, 채널이 실시간 기록됩니다.</p>
+                                </div>
+                                <button onclick="loadAuditLogs()" class="text-xs text-slate-400 hover:text-white p-1">
+                                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
+
+                            <div id="auditLogContainer" class="max-h-48 overflow-y-auto space-y-2 text-xs pr-1">
+                                <div class="text-slate-500 text-[11px]">이력을 불러오는 중...</div>
                             </div>
                         </div>
 
@@ -411,6 +430,50 @@ def get_dashboard_html() -> str:
             document.getElementById('dashboardSection').classList.remove('hidden');
             lucide.createIcons();
             loadSettings();
+            loadAuditLogs();
+        }
+
+        async function loadAuditLogs() {
+            const container = document.getElementById('auditLogContainer');
+            try {
+                const res = await fetch('/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'get_audit_logs' })
+                });
+                const data = await res.json();
+                const logs = data.logs || [];
+
+                if (logs.length === 0) {
+                    container.innerHTML = '<div class="text-slate-500 text-[11px] p-2 bg-slate-800/30 rounded-lg">기록된 변경 이력이 없습니다.</div>';
+                    return;
+                }
+
+                container.innerHTML = '';
+                logs.forEach(log => {
+                    const timeStr = new Date(log.created_at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    const badgeColor = log.channel === 'whatsapp' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : (log.channel === 'telegram' ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20');
+                    
+                    const div = document.createElement('div');
+                    div.className = 'bg-slate-800/50 border border-slate-700/50 p-2.5 rounded-xl space-y-1';
+                    div.innerHTML = `
+                        <div class="flex items-center justify-between text-[10px]">
+                            <span class="font-bold text-slate-300 flex items-center gap-1.5">
+                                <span class="px-1.5 py-0.5 rounded border uppercase text-[9px] ${badgeColor}">${log.channel || 'web'}</span>
+                                ${log.changed_by_name || '관리자'} (${log.changed_by_phone || 'admin'})
+                            </span>
+                            <span class="text-slate-500 font-mono">${timeStr}</span>
+                        </div>
+                        <div class="text-slate-200 text-xs pl-1">
+                            ${log.rule_content}
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+                lucide.createIcons();
+            } catch (err) {
+                container.innerHTML = '<div class="text-rose-400 text-[11px]">이력 로드 실패: ' + err + '</div>';
+            }
         }
 
         async function loadSettings() {

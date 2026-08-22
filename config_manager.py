@@ -68,11 +68,21 @@ def get_settings() -> Dict[str, Any]:
                 saved = json.load(f)
                 merged = {**DEFAULT_SETTINGS, **saved}
                 _runtime_settings = merged
-                return _runtime_settings
         except Exception as e:
             print(f"⚠️ settings.json 읽기 오류: {e}")
 
-    _runtime_settings = DEFAULT_SETTINGS.copy()
+    if not _runtime_settings:
+        _runtime_settings = DEFAULT_SETTINGS.copy()
+
+    # Supabase 실시간 룰북 동기화 시도
+    try:
+        from supabase_client import get_active_tenant_rules
+        supabase_rules = get_active_tenant_rules()
+        if supabase_rules:
+            _runtime_settings["tenant_custom_rules"] = supabase_rules
+    except Exception:
+        pass
+
     return _runtime_settings
 
 def save_settings(new_settings: Dict[str, Any]) -> bool:
@@ -92,13 +102,25 @@ def save_settings(new_settings: Dict[str, Any]) -> bool:
         print(f"❌ 설정 저장 오류: {e}")
         return False
 
-def add_tenant_custom_rule(rule_text: str) -> bool:
-    """메신저 대화를 통해 실시간으로 룰북에 새 규칙 추가"""
+def add_tenant_custom_rule(rule_text: str, changed_by_phone: str = "admin", changed_by_name: str = "오너", channel: str = "whatsapp") -> bool:
+    """메신저 대화를 통해 실시간으로 Supabase 및 로컬 룰북에 새 규칙 추가"""
     settings = get_settings()
     rules = settings.get("tenant_custom_rules", [])
     if rule_text not in rules:
         rules.append(rule_text)
         settings["tenant_custom_rules"] = rules
         save_settings(settings)
-        return True
-    return False
+
+    # Supabase 클라우드 DB에 영구 보관 및 감사 로그 기록
+    try:
+        from supabase_client import add_tenant_rule_to_supabase
+        add_tenant_rule_to_supabase(
+            rule_content=rule_text,
+            changed_by_phone=changed_by_phone,
+            changed_by_name=changed_by_name,
+            channel=channel
+        )
+    except Exception as e:
+        print(f"⚠️ Supabase 룰북 저장 예외: {e}")
+
+    return True

@@ -85,6 +85,14 @@ async def handle_all_requests(request: Request, full_path: str = ""):
             elif action == "get_settings":
                 return JSONResponse(get_settings())
 
+            elif action == "get_audit_logs":
+                try:
+                    from supabase_client import get_rulebook_audit_logs
+                    logs = get_rulebook_audit_logs(limit=30)
+                    return JSONResponse({"logs": logs})
+                except Exception as e:
+                    return JSONResponse({"logs": [], "error": str(e)})
+
             elif action == "save_settings":
                 new_settings = body.get("settings", {})
                 ok = save_settings(new_settings)
