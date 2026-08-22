@@ -15,8 +15,8 @@ if sys.platform == "win32":
 load_dotenv()
 
 ERPNEXT_URL = os.getenv("ERPNEXT_URL", "https://ktkpos.frappe.cloud").rstrip("/")
-API_KEY = os.getenv("ERPNEXT_API_KEY")
-API_SECRET = os.getenv("ERPNEXT_API_SECRET")
+API_KEY = os.getenv("ERPNEXT_API_KEY", "b39ba33d40f563a")
+API_SECRET = os.getenv("ERPNEXT_API_SECRET", "7e9584e88666381")
 
 def _get_headers() -> Dict[str, str]:
     return {
@@ -253,11 +253,6 @@ def create_sales_order(
 ) -> Dict[str, object]:
     """
     [ERPNext 판매 주문서(Sales Order) 자동 등록 도구]
-    :param customer_name: 고객명 (예: 'Carlos Gomez')
-    :param items_list: 주문할 품목 리스트
-    :param warehouse: 출고 지점 (예: 'IKEA', '[MAIN] ALARCON - K')
-    :param customer_phone: 고객 WhatsApp 전화번호
-    :param notes: 특이사항 메모
     """
     headers = _get_headers()
     today_str = datetime.date.today().strftime("%Y-%m-%d")
@@ -278,7 +273,6 @@ def create_sales_order(
     parsed_summary = []
 
     for it in items_list:
-        # dict 또는 BaseModel 모두 호환 처리
         if isinstance(it, dict):
             code = it.get("item_code", "").strip()
             boxes = float(it.get("boxes") or 0)
@@ -335,7 +329,7 @@ def create_sales_order(
         "delivery_date": today_str,
         "set_warehouse": wh_target,
         "items": so_items,
-        "remarks": notes or f"WhatsApp 삼돌이 AI 자동 생성 (고객: {customer_name}, 전화: {customer_phone})"
+        "remarks": notes or f"WhatsApp/Telegram 삼돌이 AI 자동 생성 (고객: {customer_name}, 전화: {customer_phone})"
     }
 
     try:
@@ -388,15 +382,10 @@ def create_material_transfer_draft(
 ) -> Dict[str, object]:
     """
     [ERPNext 지점 간 재고 이동 임시 전표(Stock Entry - Material Transfer Draft) 일괄 생성 도구]
-    :param to_warehouse: 도착 지점 창고 (예: 'IKEA', '[SUB] IKEA - K')
-    :param items_list: 이동할 품목 및 박스 수량 리스트
-    :param from_warehouse: 출발 창고 (기본값: [MAIN] ALARCON - K)
-    :param remarks: 비고 메모
     """
     headers = _get_headers()
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     
-    # 1. 창고 이름 정확 매핑
     all_wh = get_warehouses()
     s_wh = "[MAIN] ALARCON - K"
     t_wh = to_warehouse
@@ -408,7 +397,6 @@ def create_material_transfer_draft(
         if to_warehouse and to_warehouse.lower() in w_name.lower():
             t_wh = w_name
 
-    # 2. 품목 수량 계산 및 페이로드 구성
     transfer_items = []
     summary_items = []
 
@@ -448,7 +436,6 @@ def create_material_transfer_draft(
             "total_qty": int(final_qty)
         })
 
-    # 3. Stock Entry 생성 (Draft: docstatus = 0)
     entry_payload = {
         "stock_entry_type": "Material Transfer",
         "company": "kecon",
@@ -495,3 +482,75 @@ def create_material_transfer_draft(
             }
         }
 
+def get_item_grid_matrix(model_query: str, warehouse: Optional[str] = None) -> Dict[str, object]:
+    """
+    [그리드 전 색상 재고 매트릭스 조회 도구]
+    특정 모델(예: 'P-160', '021G', '3331')의 모든 색상별 실시간 재고 현황(박스 및 낱개)을 그리드 형태로 일괄 조회합니다.
+    :param model_query: 모델명 또는 품목 코드 접두사 (예: 'P160', 'P-160', '021G')
+    :param warehouse: 특정 지점 한정 필터링 (선택 사항)
+    """
+    clean_q = model_query.strip()
+    headers = _get_headers()
+
+    variations = _generate_search_variations(clean_q)
+    matched_items = []
+    seen = set()
+
+    for var in variations:
+        params = {
+            "fields": json.dumps(["name", "item_name", "custom_color", "custom_pack_qty", "custom_grid_group_id"]),
+            "filters": json.dumps([
+                ["disabled", "=", 0],
+                ["name", "like", f"%{var}%"]
+            ]),
+            "limit_page_length": 30,
+            "order_by": "name asc"
+        }
+        try:
+            res = requests.get(f"{ERPNEXT_URL}/api/resource/Item", headers=headers, params=params, timeout=10)
+            if res.status_code == 200:
+                for it in res.json().get("data", []):
+                    iname = it.get("name")
+                    if iname not in seen:
+                        seen.add(iname)
+                        matched_items.append(it)
+        except Exception:
+            pass
+
+    if not matched_items:
+        return {"success": False, "message": f"'{model_query}' 관련 색상 그리드 품목을 찾을 수 없습니다."}
+
+    grid_results = []
+    total_model_boxes = 0
+    total_model_qty = 0
+
+    for it in matched_items:
+        code = it.get("name")
+        color = it.get("custom_color") or (code.split("-")[2] if len(code.split("-")) >= 3 else "기본")
+        pack_qty = int(it.get("custom_pack_qty") or 1)
+
+        stock_info = get_item_stock(code, warehouse=warehouse)
+        tot_boxes = stock_info.get("total_boxes", 0)
+        tot_qty = stock_info.get("total_qty", 0)
+
+        total_model_boxes += tot_boxes
+        total_model_qty += tot_qty
+
+        grid_results.append({
+            "item_code": code,
+            "color": color,
+            "pack_qty": pack_qty,
+            "total_boxes": tot_boxes,
+            "total_qty": int(tot_qty),
+            "in_stock": tot_qty > 0,
+            "warehouses": stock_info.get("warehouses", [])
+        })
+
+    return {
+        "success": True,
+        "model": model_query,
+        "total_variants_count": len(grid_results),
+        "total_model_boxes": total_model_boxes,
+        "total_model_qty": int(total_model_qty),
+        "color_grid": grid_results
+    }

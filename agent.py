@@ -36,7 +36,7 @@ def build_system_instruction(user_role_info: Dict[str, Any], user_lang: str = "k
     custom_rules = settings.get("tenant_custom_rules", [])
     custom_rules_str = "\n".join([f"- {r}" for r in custom_rules]) if custom_rules else "없음"
     recent_items_str = ", ".join(recent_items) if recent_items else "없음"
-    staff_branch = user_role_info.get("branch", "IKEA")
+    staff_branch = user_role_info.get("branch", "[MAIN] ALARCON")
 
     if is_spanish:
         return f"""
@@ -49,7 +49,9 @@ Sucursal asignada del usuario: [{staff_branch}]
 
 【REGLAS DE ORO OBLIGATORIAS】
 1. **CONSULTAS DE STOCK:**
-   - Responde ÚNICAMENTE sobre el modelo y color solicitado.
+   - Si piden un color específico, responde ÚNICAMENTE sobre ese color.
+   - Si piden "grid", "todos los colores", "matriz de colores" (ej: 'P160 grid', 'P160 todos los colores'):
+     ➔ Utiliza la herramienta `get_item_grid_matrix` para mostrar el stock de TODOS los colores disponibles en formato de tabla o lista ordenada.
    - Si el usuario es empleado ({staff_branch}), muestra prioritariamente el stock de [MAIN] ALARCON y de su sucursal ({staff_branch}).
    - Incluye siempre la cantidad exacta en **cajas / bultos** y **piezas totales**.
 
@@ -61,6 +63,9 @@ Sucursal asignada del usuario: [{staff_branch}]
 3. **CREACIÓN DE PEDIDOS (Sales Order):**
    - Si se envía un pedido confirmado, utiliza `create_sales_order`.
 
+4. **ADMINISTRACIÓN DE REGLAS (save_tenant_rule):**
+   - Solo el Administrador/Owner puede modificar el libro de reglas.
+
 【REGLAS PERSONALIZADAS DE LA TIENDA (Dynamic Rulebook)】
 {custom_rules_str}
 """
@@ -71,11 +76,13 @@ Sucursal asignada del usuario: [{staff_branch}]
 
 【현재 세션에서 최근 조회한 품목 목록】
 최근 조회 품목: [{recent_items_str}]
-접속자 소속 지점: [{staff_branch}]
+접속자 소속/위치: [{staff_branch}]
 
 【필수 대원칙 (행동 수칙)】
-1. **재고 수량(박스/개수) 명확한 안내:**
-   - 재고 문의 시 요청한 품목에 대해 **몇 박스(cajas), 총 몇 개(piezas)**가 있는지 명확히 안내하세요.
+1. **재고 수량(박스/개수) 및 그리드(전 색상) 조회:**
+   - 특정 단일 컬러 문의 시: 해당 색상에 대해서만 **몇 박스(cajas), 총 몇 개(piezas)**가 있는지 명확히 안내하세요.
+   - **'그리드', '전 색상', '컬러 목록' 문의 시 (예: `P160 그리드`, `P160 전 색상 재고`):**
+     ➔ `get_item_grid_matrix` 도구를 호출하여 해당 모델의 **모든 컬러별 재고 현황을 깔끔한 표(Grid)나 리스트**로 일목요연하게 안내하세요!
    - 직원이 조회할 때는 **[MAIN] ALARCON(본사)**과 **소속 지점({staff_branch})** 재고를 최우선으로 간결하게 안내하세요.
 
 2. **조회 목록 일괄 재고이동 전표 생성 (create_material_transfer_draft):**
@@ -88,7 +95,7 @@ Sucursal asignada del usuario: [{staff_branch}]
    - 관리자가 포워딩한 주문 내용은 `create_sales_order`로 등록하세요.
 
 4. **대화형 매장 규칙 학습 (save_tenant_rule):**
-   - 오너가 "앞으로 우리 매장은 ~해줘", "규칙: ~" 등의 새로운 운영 지침을 말하면 `save_tenant_rule`을 호출하여 룰북에 저장하세요.
+   - 오너(대표님)가 "앞으로 우리 매장은 ~해줘", "규칙: ~" 등의 새로운 운영 지침을 말하면 `save_tenant_rule`을 호출하여 룰북에 저장하세요.
 
 【실시간 학습된 매장 커스텀 룰북】
 {custom_rules_str}
@@ -156,6 +163,7 @@ def run_agent(user_message: str, sender_name: str = "사용자", sender_phone: s
     tools = [
         erpnext_tools.search_items,
         erpnext_tools.get_item_stock,
+        erpnext_tools.get_item_grid_matrix,
         erpnext_tools.get_warehouses,
         erpnext_tools.get_item_price,
         erpnext_tools.get_recent_stock_transfers,
